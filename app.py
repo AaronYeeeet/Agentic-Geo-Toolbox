@@ -16,6 +16,7 @@ import streamlit.components.v1 as components
 
 import chat_store
 import ergebnisse_page
+import agent as agent_mod
 from agent import create_agent
 
 st.set_page_config(page_title="Geo-Agent", page_icon="🗺️", layout="wide")
@@ -59,21 +60,49 @@ def render_answer(events):
                 st.caption(path)
 
 
+@st.cache_data(ttl=3600, show_spinner="Lade Modellliste …")
+def _model_choices():
+    return agent_mod.model_choices()
+
+
 def _start_chat(chat_id=None):
-    """Neuen Agenten anlegen und optional einen gespeicherten Chat (Verlauf + LLM-Kontext) laden."""
-    agent = create_agent()
+    """Neuen Agenten anlegen und optional einen gespeicherten Chat (Verlauf + LLM-Kontext) laden.
+    Ein gespeicherter Chat läuft mit seinem ursprünglichen Modell weiter, wenn es noch wählbar ist."""
+    choice = st.session_state.get("model_choice") or agent_mod.default_choice()
+    data = chat_store.load(chat_id) if chat_store.exists(chat_id) else None
+    if data:
+        state = data.get("llm_state") or {}
+        own = f"{state.get('provider')}:{state.get('model')}"
+        if own in dict(_model_choices()):
+            choice = own
+    agent = create_agent(choice)
     turns, note = [], None
-    if chat_store.exists(chat_id):
-        data = chat_store.load(chat_id)
+    if data:
         turns = data.get("turns", [])
         note = chat_store.restore(agent, data)
     else:
         chat_id = None
-    st.session_state.update(agent=agent, history=turns, chat_id=chat_id, restore_note=note)
+    st.session_state.update(agent=agent, history=turns, chat_id=chat_id, restore_note=note, model_choice=choice)
     if chat_id:
         st.query_params["chat"] = chat_id  # steht in der URL: Neuladen der Seite öffnet denselben Chat
     elif "chat" in st.query_params:
         del st.query_params["chat"]
+
+
+def _switch_model(choice):
+    """Modell wechseln, ohne den Chat zu verlieren: neuer Agent bekommt Fragen + Antworten als Kontext."""
+    old = st.session_state.agent
+    try:
+        agent = create_agent(choice)
+    except ValueError as err:
+        st.session_state.restore_note = str(err)
+        return
+    turns = st.session_state.history
+    note = chat_store.restore(agent, {"turns": turns, "llm_state": old.export_state(), "model": old.label})
+    st.session_state.update(agent=agent, model_choice=choice,
+                            restore_note=f"Modell gewechselt auf {agent.label}." + (f" {note}" if turns else ""))
+    if st.session_state.chat_id:
+        chat_store.save(st.session_state.chat_id, agent, turns)
 
 
 def chat_page():
@@ -92,7 +121,17 @@ def chat_page():
     # ---------- Seitenleiste ----------
     with st.sidebar:
         st.header("🗺️ Geo-Agent")
-        st.caption(f"Modell: `{agent.label}`")
+        choices = dict(_model_choices())
+        if agent.choice not in choices:  # z.B. Modell aus .env, das gerade nicht in der Gratis-Liste steht
+            choices = {agent.choice: agent.label, **choices}
+        keys = list(choices)
+        picked = st.selectbox("Modell", keys, index=keys.index(agent.choice), format_func=choices.get,
+                              help="Google-Modelle (GEMINI_API_KEY) und alle kostenlosen OpenRouter-Modelle mit "
+                                   "Werkzeug-Unterstützung (Liste live von OpenRouter, täglich aktualisiert). "
+                                   "Ein Wechsel mitten im Chat übernimmt die bisherigen Fragen und Antworten.")
+        if picked != agent.choice:
+            _switch_model(picked)
+            st.rerun()
         show_steps = st.toggle("Denkprozess & Werkzeuge zeigen", value=True)
         if st.button("➕ Neuer Chat", width="stretch"):
             _start_chat(None)

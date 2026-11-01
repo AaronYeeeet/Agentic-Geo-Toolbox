@@ -10,6 +10,7 @@ import json
 import os
 import sys
 import time
+import urllib.request
 
 import openai
 from dotenv import load_dotenv
@@ -347,6 +348,7 @@ class BaseAgent:
 class GeminiAgent(BaseAgent):
     def __init__(self, api_key, model=GEMINI_MODEL):
         self.label = f"gemini / {model}"
+        self.choice = f"gemini:{model}"  # Schlüssel für model_choices / create_agent
         self.model = model
         super().__init__()
         self.config = types.GenerateContentConfig(
@@ -409,9 +411,9 @@ class GeminiAgent(BaseAgent):
     def _error_text(self, err):
         if isinstance(err, errors.ClientError):
             if err.code == 429:
-                return "Gratis-Kontingent bei Google aufgebraucht. Später nochmal versuchen."
+                return "Gratis-Kontingent bei Google aufgebraucht. Links ein anderes Modell wählen oder später nochmal versuchen."
             if err.code == 404:
-                return f"Modell '{self.model}' nicht verfügbar: {err.message}. In .env ein anderes MODEL wählen (gemma, flash-lite, nemotron, flint)."
+                return f"Modell '{self.model}' nicht verfügbar: {err.message}. Links in der Seitenleiste ein anderes Modell wählen."
             return f"Gemini-Fehler ({err.code}): {err.message}"
         if isinstance(err, errors.ServerError):
             return f"Google-Server-Fehler ({err.code}) auch nach mehreren Versuchen. Frage bitte neu stellen."
@@ -423,6 +425,7 @@ class OpenRouterAgent(BaseAgent):
 
     def __init__(self, api_key, model=OPENROUTER_MODEL):
         self.label = f"openrouter / {model}"
+        self.choice = f"openrouter:{model}"
         self.model = model
         super().__init__()
         self.client = openai.OpenAI(api_key=api_key, base_url="https://openrouter.ai/api/v1", max_retries=0,
@@ -464,7 +467,9 @@ class OpenRouterAgent(BaseAgent):
             if not resp.choices:  # OpenRouter meldet Fehler des Modell-Anbieters manchmal im Body
                 raise RuntimeError(f"Leere Antwort von OpenRouter: {(resp.model_extra or {}).get('error')}")
             return resp
-        return (yield from _with_retry(call, self._retryable))
+        # Gratis-Modelle sind oft minutenlang überlastet: nach 2 Wiederholungen aufgeben (Hinweis: anderes Modell wählen)
+        attempts = 3 if self.model.endswith(":free") or self.model.startswith("openrouter/") else 6
+        return (yield from _with_retry(call, self._retryable, attempts=attempts))
 
     def _run(self, prompt):
         self.messages.append({"role": "user", "content": prompt})
@@ -497,8 +502,8 @@ class OpenRouterAgent(BaseAgent):
         if isinstance(err, openai.AuthenticationError):
             return "OpenRouter-Key ungültig. Bitte OPENROUTER_API_KEY in .env prüfen."
         if isinstance(err, openai.RateLimitError):
-            return ("Rate-Limit bei OpenRouter erreicht (Gratis-Modelle haben ein Tageslimit). "
-                    "Später nochmal versuchen oder in .env ein anderes MODEL wählen (z.B. gemma).")
+            return ("Gratis-Modell gerade überlastet oder Tageslimit erreicht (OpenRouter 429). Links in der "
+                    "Seitenleiste ein anderes Modell wählen und die Frage nochmal stellen, oder später erneut versuchen.")
         if isinstance(err, openai.NotFoundError):
             return (f"Modell '{self.model}' nicht gefunden oder durch Datenschutz-Einstellung gesperrt: {err.message}. "
                     "Für ':free'-Modelle unter openrouter.ai/settings/privacy die Gratis-Modelle erlauben.")
@@ -512,13 +517,70 @@ def _key(name):
     return "" if "HIER_EINTRAGEN" in key else key
 
 
+OPENROUTER_MODELS_URL = "https://openrouter.ai/api/v1/models"
+OPENROUTER_MODELS_CACHE = os.path.join(geo_tools.CACHE_DIR, "openrouter_free_models.json")
+
+
+def openrouter_free_models(max_age_h=24):
+    """Kostenlose OpenRouter-Modelle, die Werkzeuge (Tool-Calls) können - live von OpenRouter (ohne Key),
+    einen Tag zwischengespeichert. Bei Fehler: alter Cache, sonst die festen Presets.
+    -> [{"id", "name", "context"}], größter Kontext zuerst."""
+    fresh = os.path.exists(OPENROUTER_MODELS_CACHE) and \
+        time.time() - os.path.getmtime(OPENROUTER_MODELS_CACHE) < max_age_h * 3600
+    if not fresh:
+        try:
+            req = urllib.request.Request(OPENROUTER_MODELS_URL, headers={"User-Agent": "uni-qgis-prototype"})
+            with urllib.request.urlopen(req, timeout=10) as r:
+                data = json.load(r)["data"]
+            models = []
+            for m in data:
+                price = m.get("pricing") or {}
+                free = m["id"].endswith(":free") or (price.get("prompt") == "0" and price.get("completion") == "0")
+                if free and "tools" in (m.get("supported_parameters") or []):
+                    models.append({"id": m["id"], "name": m.get("name", m["id"]), "context": m.get("context_length") or 0})
+            models.sort(key=lambda m: (-m["context"], m["id"]))
+            os.makedirs(geo_tools.CACHE_DIR, exist_ok=True)
+            with open(OPENROUTER_MODELS_CACHE, "w", encoding="utf-8") as f:
+                json.dump(models, f, ensure_ascii=False)
+            return models
+        except Exception as err:
+            print(f"  OpenRouter-Modellliste nicht abrufbar ({err}), nutze Cache/Presets")
+    if os.path.exists(OPENROUTER_MODELS_CACHE):
+        with open(OPENROUTER_MODELS_CACHE, encoding="utf-8") as f:
+            return json.load(f)
+    return [{"id": m, "name": m, "context": 0} for p, m in PRESETS.values() if p == "openrouter"]
+
+
+def model_choices():
+    """Alle wählbaren Modelle für die Oberfläche: [(auswahl, anzeigename)].
+    auswahl = 'gemini:<modell>' bzw. 'openrouter:<modell>', geht direkt an create_agent()."""
+    choices = []
+    if _key("GEMINI_API_KEY"):
+        choices += [(f"gemini:{m}", f"Google · {m}") for p, m in PRESETS.values() if p == "gemini"]
+    if _key("OPENROUTER_API_KEY"):
+        for m in openrouter_free_models():
+            ctx = f" · {m['context'] // 1000}k" if m["context"] else ""
+            choices.append((f"openrouter:{m['id']}", f"OpenRouter · {m['name'].replace(' (free)', '')}{ctx}"))
+    return choices
+
+
+def default_choice():
+    """Modell aus .env (MODEL=<kurzname>) als Auswahl-Schlüssel."""
+    preset = (os.environ.get("MODEL") or DEFAULT_PRESET).strip().lower()
+    provider, model = PRESETS.get(preset, PRESETS[DEFAULT_PRESET])
+    return f"{provider}:{model}"
+
+
 def create_agent(preset=None):
-    """Baut den Agenten passend zu MODEL in .env (oder dem übergebenen Kurznamen).
-    Wirft ValueError mit verständlicher Meldung."""
-    preset = (preset or os.environ.get("MODEL") or DEFAULT_PRESET).strip().lower()
-    if preset not in PRESETS:
+    """Baut den Agenten. preset: Kurzname aus PRESETS (z.B. 'gemma'), 'openrouter:<modell-id>' bzw.
+    'gemini:<modell-id>' (aus model_choices), ohne Angabe MODEL aus .env. Wirft ValueError mit verständlicher Meldung."""
+    preset = (preset or os.environ.get("MODEL") or DEFAULT_PRESET).strip()
+    if preset.split(":", 1)[0] in ("gemini", "openrouter") and ":" in preset:
+        provider, model = preset.split(":", 1)
+    elif preset.lower() in PRESETS:
+        provider, model = PRESETS[preset.lower()]
+    else:
         raise ValueError(f"Unbekanntes MODEL '{preset}' in .env. Erlaubt: {', '.join(PRESETS)}.")
-    provider, model = PRESETS[preset]
     if provider == "gemini":
         key = _key("GEMINI_API_KEY")
         if not key:
