@@ -47,8 +47,7 @@ def new_run(label):
     global _run_dir
     slug = re.sub(r"[^a-z0-9äöüß]+", "_", label.lower()).strip("_")[:40] or "frage"
     _run_dir = os.path.join(RESULTS_DIR, time.strftime("%Y-%m-%d_%H-%M-%S_") + slug)
-    os.makedirs(_run_dir, exist_ok=True)
-    return _run_dir
+    return _run_dir  # Ordner wird erst angelegt, wenn wirklich eine Datei geschrieben wird (out_path)
 
 
 def run_dir():
@@ -57,7 +56,10 @@ def run_dir():
 
 def out_path(name):
     """Pfad für eine NEUE Datei: relative Namen landen im aktuellen Ergebnisordner."""
-    return name if os.path.isabs(name) else os.path.join(_run_dir, name)
+    if os.path.isabs(name):
+        return name
+    os.makedirs(_run_dir, exist_ok=True)
+    return os.path.join(_run_dir, name)
 
 
 def find_path(name):
@@ -65,7 +67,7 @@ def find_path(name):
     dann output/. So findet der Agent auch Dateien aus einer früheren Frage im selben Chat."""
     if os.path.isabs(name):
         return name
-    folders = [_run_dir]
+    folders = [_run_dir] if os.path.isdir(_run_dir) else []
     if os.path.isdir(RESULTS_DIR):
         folders += [os.path.join(RESULTS_DIR, d) for d in sorted(os.listdir(RESULTS_DIR), reverse=True)][:30]
     for folder in folders + [OUT]:

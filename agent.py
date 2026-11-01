@@ -312,6 +312,9 @@ class BaseAgent:
             texts.append(f"**Fehler:** {ev['text']}")
             yield ev
         finally:
+            if not os.path.isdir(self.run_dir):  # Frage ohne Dateien (z.B. reine Nachfrage): kein Ordner
+                self.run_dir = None
+                return
             with open(os.path.join(self.run_dir, "frage.md"), "w", encoding="utf-8") as f:
                 f.write(f"# {prompt}\n\n{time.strftime('%d.%m.%Y %H:%M')} · Modell `{self.label}`\n\n"
                         "## Antwort\n\n" + ("\n\n".join(texts) or "(keine)") +
@@ -323,13 +326,30 @@ class BaseAgent:
     def _error_text(self, err):
         return f"Fehler: {err}"
 
+    # ---------- Gesprächskontext speichern/laden (für gespeicherte Chats, siehe chat_store.py) ----------
+    def export_state(self):
+        """Kompletter LLM-Kontext als JSON-fähiges dict."""
+        raise NotImplementedError
+
+    def import_state(self, state):
+        """Kontext aus export_state() wiederherstellen (nur gleicher Anbieter + Modell)."""
+        raise NotImplementedError
+
+    def import_transcript(self, turns):
+        """Notlösung bei Modellwechsel: nur Fragen und Antworten als Text in den Kontext legen."""
+        raise NotImplementedError
+
+    @staticmethod
+    def _answer_text(turn):
+        return "\n\n".join(e["text"] for e in turn.get("events", []) if e.get("type") == "text") or "(keine Antwort)"
+
 
 class GeminiAgent(BaseAgent):
     def __init__(self, api_key, model=GEMINI_MODEL):
         self.label = f"gemini / {model}"
         self.model = model
         super().__init__()
-        config = types.GenerateContentConfig(
+        self.config = types.GenerateContentConfig(
             system_instruction=SYSTEM,
             tools=[types.Tool(function_declarations=[
                 types.FunctionDeclaration(name=t["name"], description=t["description"],
@@ -339,7 +359,23 @@ class GeminiAgent(BaseAgent):
             thinking_config=types.ThinkingConfig(include_thoughts=True),  # Denkprozess mitliefern
         )
         self.client = genai.Client(api_key=api_key)  # Client behalten, sonst wird er sofort geschlossen
-        self.chat = self.client.chats.create(model=model, config=config)
+        self.chat = self.client.chats.create(model=model, config=self.config)
+
+    def export_state(self):
+        # model_dump_json kodiert Binärdaten (z.B. thought_signature) korrekt als Base64
+        return {"provider": "gemini", "model": self.model,
+                "history": [json.loads(c.model_dump_json(exclude_none=True)) for c in self.chat.get_history()]}
+
+    def import_state(self, state):
+        history = [types.Content.model_validate_json(json.dumps(c)) for c in state.get("history", [])]
+        self.chat = self.client.chats.create(model=self.model, config=self.config, history=history)
+
+    def import_transcript(self, turns):
+        history = []
+        for turn in turns:
+            history.append(types.Content(role="user", parts=[types.Part(text=turn["prompt"])]))
+            history.append(types.Content(role="model", parts=[types.Part(text=self._answer_text(turn))]))
+        self.chat = self.client.chats.create(model=self.model, config=self.config, history=history)
 
     @staticmethod
     def _retryable(err):
@@ -394,6 +430,20 @@ class OpenRouterAgent(BaseAgent):
         self.tools = [{"type": "function", "function": {"name": t["name"], "description": t["description"],
                                                         "parameters": t["schema"]}} for t in TOOLS]
         self.messages = [{"role": "system", "content": SYSTEM}]
+
+    def export_state(self):
+        return {"provider": "openrouter", "model": self.model, "messages": self.messages[1:]}
+
+    def import_state(self, state):
+        # Systemprompt immer aktuell lassen, nur den Gesprächsverlauf übernehmen
+        self.messages = [{"role": "system", "content": SYSTEM}] + [
+            m for m in state.get("messages", []) if m.get("role") != "system"]
+
+    def import_transcript(self, turns):
+        self.messages = [{"role": "system", "content": SYSTEM}]
+        for turn in turns:
+            self.messages += [{"role": "user", "content": turn["prompt"]},
+                              {"role": "assistant", "content": self._answer_text(turn)}]
 
     @staticmethod
     def _retryable(err):

@@ -5,6 +5,8 @@ Start (im Terminal, im Projektordner):
     .venv\\Scripts\\streamlit run app.py
 Öffnet sich im Browser unter http://localhost:8501
 Zwei Seiten (links): Chat und Ergebnisse (alle Karten/Dateien, ein Ordner pro Frage).
+Chats werden nach jeder Antwort in output/chats/ gespeichert (Verlauf + LLM-Kontext), die Chat-ID steht
+in der URL (?chat=...): Neuladen oder Neustart öffnet denselben Chat, alte Chats links in der Seitenleiste.
 """
 import json
 import os
@@ -12,6 +14,7 @@ import os
 import streamlit as st
 import streamlit.components.v1 as components
 
+import chat_store
 import ergebnisse_page
 from agent import create_agent
 
@@ -56,15 +59,34 @@ def render_answer(events):
                 st.caption(path)
 
 
+def _start_chat(chat_id=None):
+    """Neuen Agenten anlegen und optional einen gespeicherten Chat (Verlauf + LLM-Kontext) laden."""
+    agent = create_agent()
+    turns, note = [], None
+    if chat_store.exists(chat_id):
+        data = chat_store.load(chat_id)
+        turns = data.get("turns", [])
+        note = chat_store.restore(agent, data)
+    else:
+        chat_id = None
+    st.session_state.update(agent=agent, history=turns, chat_id=chat_id, restore_note=note)
+    if chat_id:
+        st.query_params["chat"] = chat_id  # steht in der URL: Neuladen der Seite öffnet denselben Chat
+    elif "chat" in st.query_params:
+        del st.query_params["chat"]
+
+
 def chat_page():
     # ---------- Zustand ----------
-    if "agent" not in st.session_state:
+    wanted = st.query_params.get("chat")
+    if "agent" not in st.session_state or (wanted and wanted != st.session_state.get("chat_id")):
         try:
-            st.session_state.agent = create_agent()
+            _start_chat(wanted)
         except ValueError as err:
             st.error(f"{err} Danach Streamlit neu starten.")
             st.stop()
-        st.session_state.history = []  # [{"prompt": str, "events": [...]}]
+    elif st.session_state.chat_id and not wanted:  # z.B. nach Wechsel von der Ergebnisse-Seite
+        st.query_params["chat"] = st.session_state.chat_id
     agent = st.session_state.agent
 
     # ---------- Seitenleiste ----------
@@ -72,9 +94,29 @@ def chat_page():
         st.header("🗺️ Geo-Agent")
         st.caption(f"Modell: `{agent.label}`")
         show_steps = st.toggle("Denkprozess & Werkzeuge zeigen", value=True)
-        if st.button("Neuer Chat"):
-            del st.session_state["agent"]
+        if st.button("➕ Neuer Chat", width="stretch"):
+            _start_chat(None)
             st.rerun()
+
+        chats = chat_store.list_chats(15)
+        if chats:
+            st.markdown("**Gespeicherte Chats**")
+            for c in chats:
+                current = c["id"] == st.session_state.chat_id
+                title = c["title"] if len(c["title"]) <= 45 else c["title"][:44] + "…"
+                if st.button(title, key=f"chat_{c['id']}", width="stretch", type="primary" if current else "secondary",
+                             help=f"{c['updated']} · {c['turns']} Fragen · {c['model']}"):
+                    if not current:
+                        _start_chat(c["id"])
+                        st.rerun()
+            if st.session_state.chat_id:
+                with st.popover("🗑️ Diesen Chat löschen"):
+                    st.caption("Löscht nur den gespeicherten Chat. Die Ergebnisordner bleiben erhalten.")
+                    if st.button("Endgültig löschen", type="primary"):
+                        chat_store.delete(st.session_state.chat_id)
+                        _start_chat(None)
+                        st.rerun()
+        st.divider()
         if os.path.exists(agent.log_path):
             with open(agent.log_path, encoding="utf-8") as f:
                 st.download_button("Protokoll herunterladen (.md)", f.read(),
@@ -89,6 +131,8 @@ def chat_page():
                     "- Welche Schulen in Darmstadt-Mitte haben keinen Spielplatz im Umkreis von 300 m?")
 
     # ---------- Verlauf ----------
+    if st.session_state.get("restore_note"):
+        st.info(st.session_state.restore_note, icon="ℹ️")
     for turn in st.session_state.history:
         with st.chat_message("user"):
             st.markdown(turn["prompt"])
@@ -97,6 +141,8 @@ def chat_page():
                 with st.expander("Denkprozess & Werkzeuge"):
                     render_steps(turn["events"], st)
             render_answer(turn["events"])
+            if turn.get("run_dir") and os.path.isdir(turn["run_dir"]):
+                st.caption(f"📁 Dateien: Seite **Ergebnisse**, Ordner `{os.path.basename(turn['run_dir'])}`")
 
     # ---------- Neue Frage ----------
     prompt = st.chat_input("Frag etwas, z.B. 'Wo in Darmstadt fehlen Ladesäulen?'")
@@ -116,8 +162,13 @@ def chat_page():
                 status.update(label="Fehler" if failed else "Fertig", state="error" if failed else "complete",
                               expanded=False)
             render_answer(events)
-            st.caption(f"📁 Alle Dateien dieser Frage: Seite **Ergebnisse** (Ordner `{os.path.basename(agent.run_dir)}`)")
-        st.session_state.history.append({"prompt": prompt, "events": events})
+        # Nach jeder Antwort speichern: Chat übersteht Neuladen und Neustart
+        st.session_state.history.append({"prompt": prompt, "events": events, "run_dir": agent.run_dir})
+        if not st.session_state.chat_id:
+            st.session_state.chat_id = chat_store.new_id()
+            st.query_params["chat"] = st.session_state.chat_id
+        chat_store.save(st.session_state.chat_id, agent, st.session_state.history)
+        st.rerun()  # Seitenleiste mit dem (neuen) gespeicherten Chat aktualisieren
 
 
 st.navigation([
