@@ -1,0 +1,6 @@
+openai>=2.0
+google-genai>=2.33
+python-dotenv>=1.0
+streamlit>=1.40
+osmnx>=2.0
+osmium>=4.0
