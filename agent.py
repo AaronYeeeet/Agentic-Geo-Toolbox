@@ -20,6 +20,7 @@ from google.genai import errors, types
 import climate_tools
 import geo_tools
 import impact_tools
+import ladeinfra_tools
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 load_dotenv(os.path.join(HERE, ".env"))
@@ -63,6 +64,17 @@ Fragen zu Starkregen und Hitze ("Was passiert bei Starkregen, wenn wir hier pfla
 4. Antwort Starkregen: zusätzlicher Abfluss in m³, wohin das Wasser fließt (Senken mit Ort, Tiefe vorher/nachher), betroffene Gebäude/Einrichtungen.
    Antwort Hitze: Bäume/Kronenfläche und Versiegelung vorher/nachher, Oberflächentemperatur, Lufttemperatur-Änderung mit Spanne und Reichweite, betroffene Einrichtungen.
    Sag klar, dass es eine grobe Abschätzung ist, und nenne die "warnungen" und Datenlücken (Höhenmodell grob, Bäume in OSM unvollständig).
+
+Fragen zu E-Ladesäulen ("Wo könnten Ladesäulen sinnvoll sein?", "Wo fehlen Ladesäulen?", "Wo lohnt sich ein Schnelllader?"):
+1. geocode mit dem Ort (Stadt, Stadtteil oder Platz).
+2. ladesaeulen mit lat/lon. radius_m: Stadtteil 1000-1500, ganze Stadt 2500-3000. e_auto_anteil: Standard 0,15 (Szenario ca. 2030);
+   wenn nach "heute" gefragt ist ca. 0,05. Für einen Vergleich das Werkzeug zweimal mit verschiedenen Anteilen aufrufen.
+   Bevorzuge dieses Werkzeug statt eigener QGIS-Puffer, weil es Bedarf (Zensus), Bestand (BNetzA), Verkehr und Stromnetz zusammenführt.
+3. make_map mit den Dateien in dieser Reihenfolge: bedarf, verkehr, netz, bestand, standorte.
+4. Antwort: Szenario (E-Autos, öffentlicher Bedarf, vorhandene Ladepunkte, Lücke in Ladepunkten), die besten Standorte als Liste mit Typ
+   (AC/DC), Zahl der Ladepunkte und Begründung, Hinweise zum Stromnetz (Abstand Trafostation, Zusatzlast).
+   Sag klar: grobe Abschätzung, Netzkapazitäten sind nicht öffentlich (nur Lage der Stationen aus OSM), Verkehr ist simuliert,
+   Flächen sind nicht auf Verfügbarkeit geprüft. Für echte Planung: Netzbetreiber (e-netz Südhessen) und Verkehrszählungen der Stadt.
 
 - Antworte in der Sprache der Nutzerin / des Nutzers, kurz und verständlich, und nenne die Zahlen und Annahmen (z.B. Pufferradius), auf denen dein Ergebnis beruht."""
 
@@ -174,6 +186,20 @@ TOOLS = [
         },
     },
     {
+        "name": "ladesaeulen",
+        "description": "Standortanalyse für öffentliche E-Ladesäulen: Ladebedarf aus Zensus 2022 (Einwohner, Mehrfamilienhäuser, Eigentümerquote) und Zielen (Supermärkte, Uni, Kliniken ...), Bestand aus dem Ladesäulenregister der Bundesnetzagentur, Verkehrs-Simulation auf dem Straßennetz, Abstand zu Trafostationen (Stromnetz). Liefert Szenario-Zahlen, die besten Standorte mit Typ (AC-Normalladen / DC-Schnellladen), Zahl der Ladepunkte und Begründung sowie GeoJSON-Dateien für die Karte.",
+        "schema": {
+            "type": "object",
+            "properties": {
+                "lat": {"type": "number"}, "lon": {"type": "number"},
+                "radius_m": {"type": "number", "description": "Untersuchungsgebiet in Metern, Standard 1500 (Stadtteil); ganze Stadt 2500-3000"},
+                "e_auto_anteil": {"type": "number", "description": "Anteil E-Autos am Pkw-Bestand, 0-1. Standard 0.15 (Szenario ca. 2030), heute ca. 0.05"},
+                "anzahl": {"type": "integer", "description": "Wie viele Standorte vorschlagen, Standard 10"},
+            },
+            "required": ["lat", "lon"],
+        },
+    },
+    {
         "name": "hitze",
         "description": "Abschätzung: Wird es wärmer, wenn Bäume gefällt oder Flächen versiegelt werden (bzw. kühler beim Begrünen)? Liefert entfallende Bäume, Kronenfläche und Versiegelung vorher/nachher, Oberflächentemperatur, Änderung der Lufttemperatur an einem heißen Sommernachmittag mit Spanne und Reichweite, betroffene sensible Einrichtungen, sowie GeoJSON-Dateien für die Karte.",
         "schema": {
@@ -230,6 +256,10 @@ def execute_tool(name, args):
     if name == "hitze":
         return climate_tools.hitze(args["lat"], args["lon"], radius_m=args.get("radius_m") or 50,
                                    massnahme=args.get("massnahme") or "baeume_faellen")
+    if name == "ladesaeulen":
+        return ladeinfra_tools.ladesaeulen(args["lat"], args["lon"], radius_m=args.get("radius_m") or 1500,
+                                           e_auto_anteil=args.get("e_auto_anteil") or 0.15,
+                                           anzahl=int(args.get("anzahl") or 10))
     raise ValueError(f"Unbekanntes Tool: {name}")
 
 

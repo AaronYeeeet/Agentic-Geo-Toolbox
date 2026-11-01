@@ -166,6 +166,7 @@ def chat_page():
                     "Darmstadt für Verkehr und Lärm? Es wird abgerissen.\n"
                     "- Was passiert bei Starkregen, wenn wir im Herrngarten Darmstadt 5000 m² pflastern?\n"
                     "- Wird es wärmer, wenn wir im Herrngarten Darmstadt die Bäume fällen?\n"
+                    "- Wo könnten in Darmstadt-Mitte E-Ladesäulen sinnvoll sein?\n"
                     "- Wo rund um die TU Darmstadt fehlen Ladesäulen?\n"
                     "- Welche Schulen in Darmstadt-Mitte haben keinen Spielplatz im Umkreis von 300 m?")
 
