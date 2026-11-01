@@ -1,0 +1,35 @@
+# Secrets
+.env
+*.env.local
+
+# Python
+.venv/
+__pycache__/
+*.pyc
+
+# Node
+node_modules/
+dist/
+
+# OS
+.DS_Store
+
+# Python tooling
+.pytest_cache/
+.ruff_cache/
+
+# Backend caches (e.g. WMS proxy)
+backend/.cache/
+
+# Playwright
+frontend/test-results/
+frontend/playwright-report/
+frontend/blob-report/
+frontend/playwright/.cache/
+frontend/screenshots/
+
+# IDE
+.idea/
+
+# Logs
+*.log

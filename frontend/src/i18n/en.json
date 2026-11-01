@@ -1,0 +1,165 @@
+{
+  "app": {
+    "name": "Geo-Toolbox",
+    "title": "Agentic Geo-Toolbox"
+  },
+  "language": {
+    "label": "Language",
+    "en": "English",
+    "de": "Deutsch"
+  },
+  "common": {
+    "close": "Close",
+    "loading": "Loading…"
+  },
+  "map": {
+    "label": "Map",
+    "zoomIn": "Zoom in",
+    "zoomOut": "Zoom out",
+    "resetNorth": "Reset bearing to north",
+    "to3d": "Switch to 3D view",
+    "to2d": "Switch to 2D view",
+    "mode2d": "2D",
+    "mode3d": "3D",
+    "noWebgl": "This map needs WebGL. Turn on hardware acceleration in your browser or use another browser.",
+    "aerialNoCoverage": "No open high-resolution aerial imagery here yet. Sentinel-2 imagery (10 m) is shown instead.",
+    "aerialUnavailable": "Aerial imagery sources are unavailable. Start the backend to load them.",
+    "popupEmpty": "This feature has no properties.",
+    "view3d": "3D view"
+  },
+  "basemap": {
+    "label": "Basemap",
+    "choose": "Choose basemap",
+    "osm": "OSM",
+    "official": "Official",
+    "light": "Light",
+    "relief": "Relief",
+    "aerial": "Aerial",
+    "osmHint": "OpenStreetMap by OpenFreeMap",
+    "officialHint": "basemap.de in colour",
+    "lightHint": "basemap.de in grey",
+    "reliefHint": "basemap.de relief with hillshade and contours",
+    "aerialHint": "State aerial imagery where it is open data",
+    "fallback": "basemap.de is not reachable right now. OpenFreeMap is shown instead."
+  },
+  "layers": {
+    "title": "Layers",
+    "open": "Show layers",
+    "close": "Hide layers",
+    "groups": {
+      "terrain": "Terrain",
+      "buildings": "Buildings",
+      "aerial": "Aerial and WMS",
+      "mydata": "My data",
+      "results": "Agent results"
+    },
+    "terrain3d": "3D terrain",
+    "hillshade": "Hillshade",
+    "buildings25d": "Buildings 2.5D",
+    "lod2": "3D buildings (LoD2)",
+    "lod2Planned": "Planned for a later iteration",
+    "lod2Hint": "Works in the 3D view",
+    "show": "Show {{title}}",
+    "opacity": "Opacity of {{title}}",
+    "remove": "Remove {{title}}",
+    "zoomTo": "Zoom to {{title}}",
+    "demo": "Demo data",
+    "features_one": "{{count}} feature",
+    "features_other": "{{count}} features",
+    "empty": {
+      "aerial": "WMS layers from the agent appear here.",
+      "mydata": "Drop a file on the map or use the paperclip in the chat.",
+      "results": "Layers from agent answers appear here."
+    }
+  },
+  "search": {
+    "label": "Search places",
+    "placeholder": "Search places in Germany",
+    "clear": "Clear search",
+    "loading": "Searching…",
+    "noResults": "No places found",
+    "error": "Search is unavailable right now. Try again in a moment.",
+    "useAsSelection": "Use as selection",
+    "attribution": "Search by Photon (komoot), data © OpenStreetMap contributors"
+  },
+  "draw": {
+    "toolbar": "Selection tools",
+    "rectangle": "Draw a rectangle",
+    "polygon": "Draw a polygon",
+    "feature": "Select a building, place or result",
+    "view": "Use the current view",
+    "clear": "Clear selection",
+    "hint": {
+      "rectangle": "Drag, or click two opposite corners. Esc cancels.",
+      "polygon": "Click to add points. Double-click or click the first point to finish. Esc cancels.",
+      "feature": "Click a building, a place or a result. Esc cancels."
+    },
+    "kind": {
+      "rectangle": "Rectangle",
+      "polygon": "Polygon",
+      "feature": "Feature",
+      "view": "Map view",
+      "search": "Search result"
+    }
+  },
+  "upload": {
+    "attach": "Attach a file (GeoJSON, CSV, KML, GPX)",
+    "dropTitle": "Drop to add it to the map",
+    "dropFormats": "GeoJSON, CSV, KML or GPX, up to 10 MB",
+    "added_one": "Added {{name}} with {{count}} feature",
+    "added_other": "Added {{name}} with {{count}} features",
+    "errors": {
+      "tooLarge": "{{name}} is larger than 10 MB.",
+      "unsupported": "{{name}} is not a supported format. Use GeoJSON, CSV, KML or GPX.",
+      "invalid": "{{name}} could not be read. Check that it is valid {{format}}.",
+      "noCoordinates": "{{name}} has no latitude and longitude columns. Name them lat and lon (or latitude and longitude, Breite and Länge).",
+      "empty": "{{name}} contains no features with coordinates.",
+      "projected": "{{name}} uses projected coordinates (for example EPSG:25832 from QGIS). Export it with longitude and latitude in WGS84 (EPSG:4326) and try again."
+    }
+  },
+  "chat": {
+    "title": "Geo assistant",
+    "demoBadge": "Demo agent",
+    "demoHint": "Iteration 0: scripted answers with demo data",
+    "widen": "Widen chat",
+    "narrow": "Narrow chat",
+    "collapse": "Hide chat",
+    "open": "Open chat",
+    "resize": "Resize chat",
+    "newChat": "New conversation",
+    "intro": "Ask about places, areas and data in Germany. Select an area on the map to give your question a context.",
+    "examples": {
+      "charging": "Where could new EV chargers go in this area?",
+      "schools": "Show all schools in the selected area.",
+      "area": "How large is this area and how much of it is green space?",
+      "flyTo": "Fly to Fraunhofer IGD in Darmstadt and show the aerial image."
+    },
+    "placeholder": "Ask about this area",
+    "send": "Send",
+    "stop": "Stop",
+    "you": "You",
+    "assistant": "Assistant",
+    "steps_one": "{{count}} step",
+    "steps_other": "{{count}} steps",
+    "stepRunning": "Running",
+    "stepDone": "Done",
+    "stepError": "Failed",
+    "sources": "Sources",
+    "zoomToResults": "Zoom to results",
+    "showLayer": "Show layer",
+    "hideLayer": "Hide layer",
+    "stopped": "Stopped",
+    "retry": "Try again",
+    "context": "Context for your question",
+    "removeContext": "Remove {{name}} from the context",
+    "selection": "{{kind}}, {{area}}",
+    "upload_one": "{{name}}, {{count}} feature",
+    "upload_other": "{{name}}, {{count}} features",
+    "sheetHandle": "Drag to resize the chat",
+    "errors": {
+      "network": "The assistant is unreachable. Check that the backend is running, then try again.",
+      "http": "The assistant answered with an error ({{status}}). Try again.",
+      "stream": "The answer was interrupted. Try again."
+    }
+  }
+}

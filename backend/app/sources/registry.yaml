@@ -1,0 +1,1042 @@
+# Data-source registry. One entry per source with license, exact attribution, coverage and
+# verification status. Adding a state or dataset means adding an entry here, not code: the frontend builds the
+# aerial basemap from all verified `basemap-aerial` WMS entries and offers `overlay-*` entries as WMS layers;
+# GET /api/sources serves this file and the agent's "data" answers read it.
+#
+# Verified on 2026-11-01 (reachability, CORS from http://localhost:5173, EPSG:3857 GetMap,
+# license, exact attribution, usage policy, no key).
+# status: verified | needs-proxy (works, but no CORS for the dev origin) | candidate (not yet verified) | later | rejected
+# used_for roles: basemap-osm, basemap-official, basemap-light, basemap-relief, basemap-aerial (state DOP WMS and the
+# coarse raster fallback), basemap-fallback, overlay-*, terrain, terrain-fallback, hillshade, buildings-2.5d,
+# buildings-lod2, geocoding-search, geocoding-backend, osm-features-backend; other roles are informational.
+
+- id: openfreemap-liberty
+  title: {en: OpenFreeMap Liberty (OSM vector basemap with 3D buildings), de: OpenFreeMap Liberty (OSM-Vektor-Basiskarte
+      mit 3D-Gebäuden)}
+  provider: OpenFreeMap (Hyperknot Software Kft., Hungary)
+  type: vector-style
+  url: https://tiles.openfreemap.org/styles/liberty
+  homepage: https://openfreemap.org
+  layers: []
+  license: {name: ODbL 1.0 (OSM data); OpenMapTiles schema CC BY 4.0; style BSD-3-Clause and CC BY 4.0; OpenFreeMap code
+      MIT, url: 'https://github.com/hyperknot/openfreemap/blob/main/LICENSE.md'}
+  attribution: OpenFreeMap © OpenMapTiles Data from OpenStreetMap
+  coverage:
+    name: World (tile data z0-z14, over-zoomed above)
+    bbox: [-180, -85.05113, 180, 85.05113]
+  cors: true
+  usage: 'Free public instance: no key, no registration, no limits on views or requests, commercial use allowed, no SLA
+    (may be discontinued without notice). Automated data collection is prohibited except offline downloads of at most 3,000
+    tiles or 50 MB each, at most 4 parallel requests, unique User-Agent (ToS 2026-10-14, https://openfreemap.org/tos/).'
+  key_required: false
+  status: verified
+  checked: 2026-11-01
+  used_for: [basemap-osm, buildings-2.5d]
+  notes: 'Vector source is the TileJSON https://tiles.openfreemap.org/planet (OpenMapTiles schema, tile zoom 0-14, MapLibre
+    over-zooms above 14); never hardcode the versioned tile URL (build id in the path changes weekly). Style contains fill-extrusion
+    layer ''building-3d'' (minzoom 14, height render_height, base render_min_height, filter excludes hide_3d); at z13 only
+    generalized blocks without heights. Buildings are merged per identical attributes: no OSM id or name, no per-building
+    picking; render_height defaults to 5 m without height or levels (IGD footprint measured at 11 m). CORS is ACAO * but
+    an OPTIONS preflight returns 405, so send no custom request headers. Glyphs only Noto Sans Regular, Bold, Italic. MapLibre
+    shows the attribution from the TileJSON automatically. Planet data is a weekly build (2026-10-25).'
+- id: openfreemap-bright
+  title: {en: OpenFreeMap Bright (OSM vector basemap), de: OpenFreeMap Bright (OSM-Vektor-Basiskarte)}
+  provider: OpenFreeMap (Hyperknot Software Kft., Hungary)
+  type: vector-style
+  url: https://tiles.openfreemap.org/styles/bright
+  homepage: https://openfreemap.org
+  layers: []
+  license: {name: ODbL 1.0 (OSM data); OpenMapTiles schema CC BY 4.0; style BSD-3-Clause and CC BY 4.0; OpenFreeMap code
+      MIT, url: 'https://github.com/hyperknot/openfreemap/blob/main/LICENSE.md'}
+  attribution: OpenFreeMap © OpenMapTiles Data from OpenStreetMap
+  coverage:
+    name: World (tile data z0-z14, over-zoomed above)
+    bbox: [-180, -85.05113, 180, 85.05113]
+  cors: true
+  usage: 'Free public instance: no key, no registration, no limits on views or requests, commercial use allowed, no SLA
+    (may be discontinued without notice). Automated data collection is prohibited except offline downloads of at most 3,000
+    tiles or 50 MB each, at most 4 parallel requests, unique User-Agent (ToS 2026-10-14, https://openfreemap.org/tos/).'
+  key_required: false
+  status: verified
+  checked: 2026-11-01
+  used_for: [basemap-fallback]
+  notes: 'Same TileJSON source, glyphs, sprite and constraints as openfreemap-liberty. Flat building polygons only (layers
+    ''building'' and ''building-top''), no fill-extrusion layer: for 2.5D add one on source ''openmaptiles'', source-layer
+    ''building'', minzoom 14, filter [''!'', [''has'', ''hide_3d'']], fill-extrusion-height [''get'', ''render_height''],
+    fill-extrusion-base [''get'', ''render_min_height''].'
+- id: openfreemap-positron
+  title: {en: OpenFreeMap Positron (light OSM vector basemap), de: OpenFreeMap Positron (helle OSM-Vektor-Basiskarte)}
+  provider: OpenFreeMap (Hyperknot Software Kft., Hungary)
+  type: vector-style
+  url: https://tiles.openfreemap.org/styles/positron
+  homepage: https://openfreemap.org
+  layers: []
+  license: {name: 'ODbL 1.0 (OSM data); OpenMapTiles schema CC BY 4.0; style BSD-3-Clause, CC BY 4.0 and CC BY 3.0 (CartoDB
+      basemaps); OpenFreeMap code MIT', url: 'https://github.com/hyperknot/openfreemap/blob/main/LICENSE.md'}
+  attribution: OpenFreeMap © OpenMapTiles Data from OpenStreetMap
+  coverage:
+    name: World (tile data z0-z14, over-zoomed above)
+    bbox: [-180, -85.05113, 180, 85.05113]
+  cors: true
+  usage: 'Free public instance: no key, no registration, no limits on views or requests, commercial use allowed, no SLA
+    (may be discontinued without notice). Automated data collection is prohibited except offline downloads of at most 3,000
+    tiles or 50 MB each, at most 4 parallel requests, unique User-Agent (ToS 2026-10-14, https://openfreemap.org/tos/).'
+  key_required: false
+  status: verified
+  checked: 2026-11-01
+  used_for: [basemap-fallback]
+  notes: Light, low-contrast basemap (55 layers), suited as neutral background under data overlays. Same TileJSON source,
+    glyphs, sprite and constraints as openfreemap-liberty. Buildings are one flat fill layer (minzoom 12 in the style, but
+    tile data exists only from z13) and there is no fill-extrusion layer (see the openfreemap-bright note for adding one).
+- id: basemapde-colour
+  title: {en: basemap.de Web Vector - Colour, de: basemap.de Web Vektor - Farbe}
+  provider: Bundesamt für Kartographie und Geodäsie (BKG) for AdV and the Länder (basemap.de)
+  type: vector-style
+  url: https://sgx.geodatenzentrum.de/gdz_basemapde_vektor/styles/bm_web_col.json
+  homepage: https://basemap.de
+  layers: []
+  license: {name: CC BY 4.0, url: 'https://creativecommons.org/licenses/by/4.0/'}
+  attribution: © GeoBasis-DE / BKG (2026) CC BY 4.0
+  coverage:
+    name: Germany
+    bbox: [6.098034, 47.23942, 15.578555, 55.054344]
+  usage: No key, no published rate limit, embedding in own websites allowed (basemap.de FAQ), use only the official URLs.
+    Monthly data refresh.
+  key_required: false
+  status: candidate
+  checked: 2026-11-01
+  used_for: [basemap-official]
+  notes: 'NOT live-verified: sgx.geodatenzentrum.de was unreachable on 2026-11-01 (curl timeout, WebFetch ECONNREFUSED).
+    cors null = unknown. Docs say usable with MapLibre GL JS. Tiles v2 z0-15 (BKG QGIS file), glyphs fonts/v2, sprite sprites/v2/bm_web_col_sprite
+    (inferred). Legacy filter syntax, 9 font stacks, 67 sprite icons. Attribution: show the Quellenvermerk with links BKG
+    -> https://www.bkg.bund.de and CC BY 4.0 -> licence URL; year = year of last data retrieval. Re-run bkg_probe1.sh when
+    BKG is back.'
+- id: basemapde-grey
+  title: {en: basemap.de Web Vector - Grey, de: basemap.de Web Vektor - Grau}
+  provider: Bundesamt für Kartographie und Geodäsie (BKG) for AdV and the Länder (basemap.de)
+  type: vector-style
+  url: https://sgx.geodatenzentrum.de/gdz_basemapde_vektor/styles/bm_web_gry.json
+  homepage: https://basemap.de
+  layers: []
+  license: {name: CC BY 4.0, url: 'https://creativecommons.org/licenses/by/4.0/'}
+  attribution: © GeoBasis-DE / BKG (2026) CC BY 4.0
+  coverage:
+    name: Germany
+    bbox: [6.098034, 47.23942, 15.578555, 55.054344]
+  usage: No key, no published rate limit, embedding allowed, official URLs only. Suited as a quiet background for thematic
+    overlays.
+  key_required: false
+  status: candidate
+  checked: 2026-11-01
+  used_for: [basemap-light]
+  notes: 'NOT live-verified (sgx down). Official grey style: ''Als Hintergrundkarte geeignete, graue Variante''. A 2025
+    BKG example derived from it shows glyphs fonts/v2 and sprite sprites/v2/bm_web_gry_sprite, one vector source smarttiles_de.'
+- id: basemapde-relief
+  title: {en: basemap.de Web Vector - Relief (hillshade and contours), de: basemap.de Web Vektor - Relief (Schummerung und
+      Höhenlinien)}
+  provider: Bundesamt für Kartographie und Geodäsie (BKG) for AdV and the Länder (basemap.de)
+  type: vector-style
+  url: https://sgx.geodatenzentrum.de/gdz_basemapde_vektor/styles/bm_web_top.json
+  homepage: https://basemap.de
+  layers: []
+  license: {name: CC BY 4.0, url: 'https://creativecommons.org/licenses/by/4.0/'}
+  attribution: © GeoBasis-DE / BKG (2026) CC BY 4.0
+  coverage:
+    name: Germany
+    bbox: [6.098034, 47.23942, 15.578555, 55.054344]
+  usage: No key, no published rate limit, embedding allowed, official URLs only.
+  key_required: false
+  status: candidate
+  checked: 2026-11-01
+  used_for: [basemap-relief]
+  notes: 'NOT live-verified (sgx down). Docs: like Colour plus Schummerung and Höhenlinien; contours from second vector
+    archive tiles/v2/bm_web_hl_de_3857 (source-layer Hoehenlinie, seen in bm_web_bin). The hillshade is a RASTER source
+    (ArcGIS Pro note: ''Rasterschummerung verhindert ein Laden der Karte''); its host/URL is unknown until bm_web_top.json
+    can be read, so check CORS and CSP for it. Reported as not fully supported by some clients (QGIS, Masterportal).'
+- id: basemapde-night-beta
+  title: {en: basemap.de Web Vector - Night style (beta), de: basemap.de Web Vektor - Nachtstyle (Beta)}
+  provider: Bundesamt für Kartographie und Geodäsie (BKG) for AdV and the Länder (basemap.de)
+  type: vector-style
+  url: https://basemap.de/data/produkte/web_vektor/styles/bm_web_drk.json
+  homepage: https://basemap.de
+  layers: []
+  license: {name: CC BY 4.0, url: 'https://creativecommons.org/licenses/by/4.0/'}
+  attribution: © GeoBasis-DE / BKG (2026) CC BY 4.0
+  coverage:
+    name: Germany
+    bbox: [6.098034, 47.23942, 15.578555, 55.054344]
+  usage: Beta style, same data and terms as Web Vektor; no key; no published rate limit.
+  key_required: false
+  status: candidate
+  checked: 2026-11-01
+  used_for: [style-candidate]
+  notes: 'Style JSON verified live on basemap.de: HTTP 200, application/json, 271490 bytes, access-control-allow-origin:
+    *. Its tiles, glyphs and sprite are on sgx (unreachable), so cors stays null. Style v5.1.0, 285 layers, one source smarttiles_de,
+    sprite sprites/v2/bm_web_drk_sprite. Beta: may change. Licence assumed identical to Web Vektor (not stated on the beta
+    page).'
+- id: basemapde-binary-beta
+  title: {en: basemap.de Web Vector - Binary base map (beta), de: basemap.de Web Vektor - Binärstyle (Beta)}
+  provider: Bundesamt für Kartographie und Geodäsie (BKG) for AdV and the Länder (basemap.de)
+  type: vector-style
+  url: https://basemap.de/data/produkte/web_vektor/styles/bm_web_bin.json
+  homepage: https://basemap.de
+  layers: []
+  license: {name: CC BY 4.0, url: 'https://creativecommons.org/licenses/by/4.0/'}
+  attribution: © GeoBasis-DE / BKG (2026) CC BY 4.0
+  coverage:
+    name: Germany
+    bbox: [6.098034, 47.23942, 15.578555, 55.054344]
+  usage: Beta style, same data and terms as Web Vektor; no key; no published rate limit.
+  key_required: false
+  status: candidate
+  checked: 2026-11-01
+  used_for: [style-candidate]
+  notes: 'Style JSON verified live on basemap.de: HTTP 200, application/json, 486238 bytes, access-control-allow-origin:
+    *. Tiles, glyphs, sprite on sgx (unreachable), so cors stays null. Style v5.1.0, 554 layers, two vector sources (smarttiles_de
+    + smarttilesHL_de contours with Hoehenlinie_1000er..2-5er and NameHL_* labels). The beta page mentions a Schummerung
+    supporting the contours, but the JSON has no hillshade, raster or raster-dem layer. Description: base map for thematic
+    content (roads, paths, waterways, buildings).'
+- id: basemapworld-colour
+  title: {en: basemap.world Web Vector - Colour, de: basemap.world Web Vektor - Farbe}
+  provider: Bundesamt für Kartographie und Geodäsie (BKG) for AdV and the Länder (basemap.world)
+  type: vector-style
+  url: https://sgx.geodatenzentrum.de/gdz_basemapworld_vektor/styles/bm_web_wld_col.json
+  homepage: https://basemap.de
+  layers: []
+  license: {name: 'CC BY 4.0 (Germany) and ODbL 1.0 (outside Germany: OpenStreetMap, Natural Earth); BKG terms', url: 'https://sgx.geodatenzentrum.de/web_public/gdz/lizenz/deu/nutzungsbedingungen_basemapworld.pdf'}
+  attribution: '© basemap.de / BKG (2026) CC BY 4.0; Datenquellen: © GeoBasis-DE / BKG (2026) CC BY 4.0 ; außerhalb Deutschlands:
+    © Open Street Map Mitwirkende ODbL v. 1.0 ; © OpenMapTiles'
+  coverage:
+    name: World (Germany at full detail)
+    bbox: [-180, -85.051, 180, 85.051]
+  usage: No key, no published rate limit, embedding in own websites allowed. ODbL share-alike applies to the OSM-derived
+    database outside Germany. World archive refreshed twice a year, Germany monthly.
+  key_required: false
+  status: candidate
+  checked: 2026-11-01
+  used_for: [basemap-world]
+  notes: 'NOT live-verified (sgx down). Two independent TileJSON sources behind one style: gdz_basemapde_vektor/tiles/v2/bm_web_de_3857/bm_web_de_3857.json
+    (Germany) and gdz_basemapworld_vektor/tiles/v1/bm_web_wld_3857/bm_web_wld_3857.json (world without Germany). Glyph/sprite
+    URLs unknown (probably fonts/v2 and sprites/v2 under gdz_basemapworld_vektor, inferred). Attribution text is the BKG
+    MIS text with the year filled in; the canonical OSM wording is ''© OpenStreetMap contributors''.'
+- id: basemapde-web-raster-wms
+  title: {en: basemap.de Web Raster (WMS), de: basemap.de Web Raster (WMS)}
+  provider: Bundesamt für Kartographie und Geodäsie (BKG) for AdV and the Länder (basemap.de)
+  type: wms
+  url: https://sgx.geodatenzentrum.de/wms_basemapde
+  homepage: https://basemap.de
+  layers: [de_basemapde_web_raster_farbe, de_basemapde_web_raster_grau]
+  license: {name: CC BY 4.0, url: 'https://creativecommons.org/licenses/by/4.0/'}
+  attribution: © GeoBasis-DE / BKG (2026) CC BY 4.0
+  coverage:
+    name: Germany (service bbox includes a margin)
+    bbox: [0.106, 45.238, 20.449, 56.848]
+  epsg3857: true
+  usage: No key, no published rate limit; MaxWidth/MaxHeight 6000; prefer the WMTS XYZ tiles for tiled clients. Quarterly
+    refresh.
+  key_required: false
+  status: candidate
+  checked: 2026-11-01
+  used_for: [raster-fallback]
+  notes: 'NOT live-verified: no GetCapabilities/GetMap/CORS possible on 2026-11-01 (sgx down). epsg3857 true is from the
+    basemap.de Capabilities snapshot (2024-11-15, CRS list on root layer, inherited) and the product page; WMS 1.3.0 (also
+    1.0.0, 1.1.0). No relief layer; hillshade is the separate wms_basemapde_schummerung service. MapLibre source: tiles
+    URL with CRS=EPSG:3857, WIDTH=HEIGHT=256, BBOX={bbox-epsg-3857}, FORMAT=image/png, TRANSPARENT=true.'
+- id: basemapde-web-raster-wmts-xyz
+  title: {en: 'basemap.de Web Raster (WMTS, XYZ tiles)', de: 'basemap.de Web Raster (WMTS, XYZ-Kacheln)'}
+  provider: Bundesamt für Kartographie und Geodäsie (BKG) for AdV and the Länder (basemap.de)
+  type: raster-xyz
+  url: https://sgx.geodatenzentrum.de/wmts_basemapde/tile/1.0.0/de_basemapde_web_raster_farbe/default/GLOBAL_WEBMERCATOR/{z}/{y}/{x}.png
+  homepage: https://basemap.de
+  layers: [de_basemapde_web_raster_farbe, de_basemapde_web_raster_grau]
+  license: {name: CC BY 4.0, url: 'https://creativecommons.org/licenses/by/4.0/'}
+  attribution: © GeoBasis-DE / BKG (2026) CC BY 4.0
+  coverage:
+    name: Germany
+    bbox: [6.098034, 47.23942, 15.578555, 55.054344]
+  epsg3857: true
+  usage: No key, no published rate limit; pre-rendered tiles, cache friendly. Quarterly refresh.
+  key_required: false
+  status: candidate
+  checked: 2026-11-01
+  used_for: [raster-fallback]
+  notes: 'Pattern documented in the basemap.de Web Raster FAQ (tile matrix set GLOBAL_WEBMERCATOR,
+    order z/y/x = zoom/row/column). Replace the layer name for grey. basemap.de WMTS Capabilities snapshot (2024-11-15):
+    GLOBAL_WEBMERCATOR = EPSG:3857, levels 0-19, 256 px, image/png only (standard XYZ grid; use minzoom 0, maxzoom 19, tileSize
+    256). Do not use DE_EPSG_3857_ADV (levels 0-13, non-XYZ). Live status and CORS unverified (sgx down).'
+- id: basemapde-schummerung-wms
+  title: {en: basemap.de Web Raster Hillshade (WMS), de: basemap.de Web Raster Schummerung (WMS)}
+  provider: Bundesamt für Kartographie und Geodäsie (BKG) for AdV and the Länder (basemap.de)
+  type: wms
+  url: https://sgx.geodatenzentrum.de/wms_basemapde_schummerung
+  homepage: https://basemap.de
+  layers: [de_basemapde_web_raster_hillshade, de_basemapde_web_raster_combshade, de_basemapde_web_raster_colordem]
+  license: {name: CC BY 4.0, url: 'https://creativecommons.org/licenses/by/4.0/'}
+  attribution: © GeoBasis-DE / BKG (2026) CC BY 4.0
+  coverage:
+    name: Germany (service bbox includes a margin)
+    bbox: [0.106, 45.238, 20.449, 56.848]
+  epsg3857: true
+  usage: No key, no published rate limit; based on the 5 m DGM5, last updated 2021.
+  key_required: false
+  status: candidate
+  checked: 2026-11-01
+  used_for: [hillshade-overlay]
+  notes: 'Extra. Layer names and EPSG:3857 from the basemap.de Capabilities snapshot (2024-11-15) only; not live-verified
+    (sgx down). WMTS counterpart: wmts_basemapde_schummerung.'
+- id: hessen-dop20
+  title: {en: 'Hessen aerial imagery (DOP20, scale-aware composite)', de: 'Hessen Luftbilder (DOP20, maßstabsabhängiger
+      Verbund)'}
+  provider: Hessische Verwaltung für Bodenmanagement und Geoinformation (HVBG)
+  type: wms
+  url: https://www.gds-srv.hessen.de/cgi-bin/lika-services/ogc-free-images.ows
+  homepage: https://gds.hessen.de
+  layers: [he_dop_rgb]
+  format: image/jpeg
+  license: {name: Datenlizenz Deutschland – Zero – Version 2.0, url: 'https://www.govdata.de/dl-de/zero-2-0'}
+  attribution: 'Geobasisdaten © Hessische Verwaltung für Bodenmanagement und Geoinformation: Digitale Orthophotos'
+  coverage:
+    name: Hessen
+    bbox: [7.69883, 49.3761, 10.2723, 51.667]
+  cors: true
+  epsg3857: true
+  usage: Automated retrieval free (§24 HVGG), any use without restriction or condition (§18 HVGG); no key; no rate limit
+    published; max 3000x3000 px. https://hvbg.hessen.de/geoinformation/open-data
+  key_required: false
+  status: verified
+  checked: 2026-11-01
+  used_for: [basemap-aerial]
+  notes: he_dop_rgb is the scale-aware composite (DOP20 at z16+, DOP320 z13-15, DOP5000 z7-12). The pure 20 cm layer he_dop20_rgb
+    has MaxScaleDenominator 9000 and returns a blank 667 B JPEG below z16. Attribution is optional under Zero; if shown
+    it must flag modifications. ACAO * on capabilities and tiles; Cache-Control no-store; blank/out-of-coverage tiles are
+    HTTP 200 images. Flight 2025-06-20 at Darmstadt. Suggested maxzoom 19.
+- id: nrw-dop
+  title: {en: 'North Rhine-Westphalia aerial imagery (DOP10, true orthophoto)', de: 'NRW Luftbilder (DOP10, True-Orthophoto)'}
+  provider: Geobasis NRW (Bezirksregierung Köln)
+  type: wms
+  url: https://www.wms.nrw.de/geobasis/wms_nw_dop
+  homepage: https://www.bezreg-koeln.nrw.de/geobasis-nrw
+  layers: [nw_dop_rgb]
+  format: image/jpeg
+  license: {name: Datenlizenz Deutschland – Zero – Version 2.0, url: 'https://www.govdata.de/dl-de/zero-2-0'}
+  attribution: Geobasis NRW
+  coverage:
+    name: Nordrhein-Westfalen
+    bbox: [5.593338, 50.057798, 9.741582, 52.799797]
+  cors: true
+  epsg3857: true
+  usage: Any use allowed without restrictions or conditions; liability excluded incl. availability; no key; no rate limit
+    published; max 5000x5000 px. https://www.bezreg-koeln.nrw.de/system/files/media/document/file/lizenzbedingungen_geobasis_nrw.pdf
+  key_required: false
+  status: verified
+  checked: 2026-11-01
+  used_for: [basemap-aerial]
+  notes: 'No attribution required (Zero); ''Geobasis NRW'' is a courtesy credit. ACAO reflects the request Origin (Vary:
+    Origin), no ACAO without Origin. No scale limit (tested z8, z16): set minzoom 10-12. 10 cm RGBI, flight 2025-05-11 at
+    Köln, 2-year cycle. No cache headers on tiles. Blank/out-of-coverage tiles are HTTP 200 images. Suggested maxzoom 20.'
+- id: bayern-dop20
+  title: {en: Bavaria aerial imagery (DOP20), de: Bayern Luftbilder (DOP20)}
+  provider: Bayerische Vermessungsverwaltung (LDBV)
+  type: wms
+  url: https://geoservices.bayern.de/od/wms/dop/v1/dop20
+  homepage: https://geodaten.bayern.de/opengeodata/
+  layers: [by_dop20c]
+  format: image/jpeg
+  license: {name: Creative Commons Namensnennung 4.0 International (CC BY 4.0), url: 'https://creativecommons.org/licenses/by/4.0/deed.de'}
+  attribution: Bayerische Vermessungsverwaltung – www.geodaten.bayern.de
+  coverage:
+    name: Bayern
+    bbox: [8.957621, 47.162543, 14.032767, 50.587905]
+  cors: true
+  epsg3857: true
+  usage: Documented open-data service; no authentication; no rate limit published; max 6500x6500 px. https://geodatenonline.bayern.de/geodatenonline/seiten/wms_dop20cm
+  key_required: false
+  status: verified
+  checked: 2026-11-01
+  used_for: [basemap-aerial]
+  notes: 'Preferred Bayern aerial source (listed in the open-data catalogue, 20 cm, 2-year cycle). Scale 1..3.5e6: z8+.
+    Also by_dop20g (grey), by_dop20cir. Suggested maxzoom 19.'
+- id: bayern-dop40
+  title: {en: Bavaria aerial imagery (DOP40), de: Bayern Luftbilder (DOP40)}
+  provider: Bayerische Vermessungsverwaltung (LDBV)
+  type: wms
+  url: https://geoservices.bayern.de/od/wms/dop/v1/dop40
+  homepage: https://geodaten.bayern.de/opengeodata/
+  layers: [by_dop40c]
+  format: image/jpeg
+  license: {name: Creative Commons Namensnennung 4.0 International (CC BY 4.0), url: 'https://creativecommons.org/licenses/by/4.0/deed.de'}
+  attribution: Bayerische Vermessungsverwaltung – www.geodaten.bayern.de
+  coverage:
+    name: Bayern
+    bbox: [8.95758, 47.117703, 14.037541, 50.63287]
+  cors: true
+  epsg3857: true
+  usage: No request or agreement needed; credit + licence link + change note required; no rate limit published; max 6000x6000
+    px. https://www.geodaten.bayern.de/odd/m/3/html/nutzungsbedingungen.html
+  key_required: false
+  status: verified
+  checked: 2026-11-01
+  used_for: [basemap-aerial-alternative]
+  notes: 'Scale 1..3.5e6: renders z8+. ACAO reflects Origin (+Allow-Credentials). Show the attribution text exactly, link
+    the licence, and add ''(Daten verändert)'' if altered. This DOP40 WMS is not in Bayern''s open-data service catalogue
+    (DOP20 WMS and WMTS are); it is declared CC BY 4.0/opendata in its own capabilities. 40 cm, Marienplatz flight 2024-08-24.
+    Suggested maxzoom 18.'
+- id: baden-wuerttemberg-dop20
+  title: {en: Baden-Württemberg aerial imagery (DOP20), de: Baden-Württemberg Luftbilder (DOP20)}
+  provider: Landesamt für Geoinformation und Landentwicklung Baden-Württemberg (LGL)
+  type: wms
+  url: https://owsproxy.lgl-bw.de/owsproxy/ows/WMS_LGL-BW_ATKIS_DOP_20_C
+  homepage: https://www.lgl-bw.de
+  layers: [IMAGES_DOP_20_RGB]
+  format: image/jpeg
+  license: {name: Datenlizenz Deutschland – Namensnennung – Version 2.0, url: 'https://www.govdata.de/dl-de/by-2-0'}
+  attribution: 'Datenquelle: LGL, www.lgl-bw.de, dl-de/by-2-0'
+  coverage:
+    name: Baden-Württemberg
+    bbox: [7.2, 47.4, 10.7, 50.0]
+  cors: true
+  epsg3857: true
+  usage: Open data, free of charge; no key on the /ows/ path; no rate limit stated. https://www.lgl-bw.de/Produkte/Open-Data/
+  key_required: false
+  status: verified
+  checked: 2026-11-01
+  used_for: [basemap-aerial]
+  notes: 'Source note from the LGL open-data page; the capabilities give a different example (''LGL-BW (2024) Datenlizenz
+    Deutschland - Namensnennung - Version 2.0, www.lgl-bw.de''). bbox is a coarse rectangle from the capabilities. 20 cm,
+    about 50% of the state renewed yearly. No scale limit: set minzoom 11-12.'
+- id: niedersachsen-dop20
+  title: {en: Lower Saxony aerial imagery (DOP20), de: Niedersachsen Luftbilder (DOP20)}
+  provider: Landesamt für Geoinformation und Landesvermessung Niedersachsen (LGLN)
+  type: wms
+  url: https://opendata.lgln.niedersachsen.de/doorman/noauth/dop_wms
+  homepage: https://www.lgln.niedersachsen.de
+  layers: [ni_dop20]
+  format: image/jpeg
+  license: {name: Creative Commons Namensnennung 4.0 International (CC BY 4.0), url: 'https://creativecommons.org/licenses/by/4.0/'}
+  attribution: LGLN (2026) Creative Commons Namensnennung – 4.0 International (CC BY 4.0)
+  coverage:
+    name: Niedersachsen
+    bbox: [6.505772, 51.153098, 11.754046, 54.148101]
+  cors: true
+  epsg3857: true
+  usage: Open data via the noauth gateway; no key; no rate limit stated in capabilities; max 15000 px.
+  key_required: false
+  status: verified
+  checked: 2026-11-01
+  used_for: [basemap-aerial]
+  notes: 'Capabilities require rights holder ''LGLN'' plus the year of data retrieval in brackets (example uses 2024; we
+    use the access year). LGLN''s general terms (AGNB) are broader than CC BY and one forum disputes the openness; confirm
+    with LGLN before production. No scale limit: set minzoom 11-12.'
+- id: sachsen-dop20
+  title: {en: Saxony aerial imagery (DOP20), de: Sachsen Luftbilder (DOP20)}
+  provider: Landesamt für Geobasisinformation Sachsen (GeoSN)
+  type: wms
+  url: https://geodienste.sachsen.de/wms_geosn_dop-rgb/guest
+  homepage: https://www.geodaten.sachsen.de
+  layers: [sn_dop_020]
+  format: image/jpeg
+  license: {name: Datenlizenz Deutschland – Namensnennung – Version 2.0, url: 'https://www.govdata.de/dl-de/by-2-0'}
+  attribution: 'Quelle: GeoSN, dl-de/by-2-0'
+  coverage:
+    name: Sachsen
+    bbox: [11.788898, 50.150604, 15.08686, 51.72093]
+  cors: true
+  epsg3857: true
+  usage: 'Free of charge (capabilities: kostenfrei); GeoSN terms https://geoportal.sachsen.de/nutzungsbedingungen.html;
+    guest path needs no key; no rate limit stated; max 4096 px.'
+  key_required: false
+  status: verified
+  checked: 2026-11-01
+  used_for: [basemap-aerial]
+  notes: 'Licence for the WMS rests on GeoSN''s general terms (dl-de/by-2-0 pattern) and a 2026 GeoSN e-mail summarised
+    on the OSM wiki; the terms text does not name WMS explicitly, so confirm with servicedesk@geosn.sachsen.de. 20 cm, 2-year
+    cycle. No scale limit: set minzoom 11-12.'
+- id: brandenburg-dop20c
+  title: {en: 'Brandenburg and Berlin aerial imagery (DOP20c, cached)', de: 'Brandenburg und Berlin Luftbilder (DOP20c,
+      gekachelt)'}
+  provider: Landesvermessung und Geobasisinformation Brandenburg (LGB)
+  type: wms
+  url: https://isk.geobasis-bb.de/mapproxy/dop20c/service/wms
+  homepage: https://geobasis-bb.de
+  layers: [bebb_dop20c]
+  format: image/jpeg
+  license: {name: Datenlizenz Deutschland – Namensnennung – Version 2.0, url: 'https://www.govdata.de/dl-de/by-2-0'}
+  attribution: © GeoBasis-DE/LGB, dl-de/by-2-0; © Geoportal Berlin, dl-de/by-2-0
+  coverage:
+    name: Brandenburg und Berlin
+    bbox: [11.229126, 51.30631, 14.770193, 53.57262]
+  cors: true
+  epsg3857: true
+  usage: Free of charge under the licence conditions (capabilities); no key; no rate limit stated; max 8000 px.
+  key_required: false
+  status: verified
+  checked: 2026-11-01
+  used_for: [basemap-aerial]
+  notes: 'Provider text: ''GeoBasis-DE/LGB'', example ''© GeoBasis-DE/LGB, dl-de/by-2-0, (Daten geändert)''; the ''© Geoportal
+    Berlin, dl-de/by-2-0'' part is required when Berlin data is shown (the composite includes Berlin). MapProxy cache. Regions
+    have different flight years. Old /ows/dop20c_wms path is being retired.'
+- id: berlin-truedop-2024
+  title: {en: Berlin true orthophotos 2024 (DOP20 RGBI), de: Berlin digitale farbige TrueOrthophotos 2024 (DOP20RGBI)}
+  provider: Senatsverwaltung für Stadtentwicklung, Bauen und Wohnen Berlin (Geoportal Berlin)
+  type: wms
+  url: https://gdi.berlin.de/services/wms/truedop_2024
+  homepage: https://gdi.berlin.de
+  layers: [truedop_2024]
+  format: image/jpeg
+  license: {name: Datenlizenz Deutschland – Zero – Version 2.0, url: 'https://www.govdata.de/dl-de/zero-2-0'}
+  attribution: Geoportal Berlin
+  coverage:
+    name: Berlin
+    bbox: [13.047582, 52.316438, 13.767418, 52.685406]
+  cors: true
+  epsg3857: true
+  usage: No access restrictions; no key; no rate limit stated.
+  key_required: false
+  status: verified
+  checked: 2026-11-01
+  used_for: [basemap-aerial]
+  notes: 'Zero: attribution not required, ''Geoportal Berlin'' is a courtesy credit. Year-named service; newer 2025/2026
+    imagery exists but the official WMS name was not found (truedop_2025, dop2025, dop2026, dop_2025, dop_2026 returned
+    404). brandenburg-dop20c also covers Berlin.'
+- id: hamburg-dop20-unbelaubt
+  title: {en: Hamburg aerial imagery (DOP20 leaf-off time series), de: Hamburg Luftbilder (DOP20 Zeitreihe unbelaubt)}
+  provider: Freie und Hansestadt Hamburg, Landesbetrieb Geoinformation und Vermessung (LGV)
+  type: wms
+  url: https://geodienste.hamburg.de/wms_dop_zeitreihe_unbelaubt
+  homepage: https://www.hamburg.de/geoinfo/
+  layers: [dop_zeitreihe_unbelaubt]
+  format: image/jpeg
+  minzoom: 17
+  license: {name: Datenlizenz Deutschland – Namensnennung – Version 2.0 (parts under closed third-party licence), url: 'https://www.govdata.de/dl-de/by-2-0'}
+  attribution: Freie und Hansestadt Hamburg, Landesbetrieb Geoinformation und Vermessung
+  coverage:
+    name: Hamburg
+    bbox: [9.721766, 53.385582, 10.349556, 53.750431]
+  cors: true
+  epsg3857: true
+  usage: No access restrictions stated; no key; max 4096 px; no rate limit stated.
+  key_required: false
+  status: candidate
+  checked: 2026-11-01
+  used_for: [basemap-aerial]
+  notes: 'Partial: MaxScaleDenominator 5000, so it renders only at z17+ (tested z17 OK, ACAO *). Time dimension 2001/2026/P1Y,
+    default 2026. Capabilities Fees mix dl-de/by-2.0 (LGV) with a closed licence for satellite imagery (Maxar 2023) in some
+    time steps: pin TIME=2026 and verify before use. No plain DOP20 WMS found (HH_WMS_DOP20, wms_dop, wms_dop10 are 404).'
+- id: thueringen-dop20
+  title: {en: Thuringia aerial imagery (DOP20), de: Thüringen Luftbilder (DOP20)}
+  provider: Thüringer Landesamt für Bodenmanagement und Geoinformation (GDI-Th)
+  type: wms
+  url: https://www.geoproxy.geoportal-th.de/geoproxy/services/DOP
+  homepage: https://www.geoportal-th.de
+  layers: [th_dop]
+  format: image/jpeg
+  license: {name: Creative Commons Namensnennung 4.0 International (CC BY 4.0), url: 'https://creativecommons.org/licenses/by/4.0/deed.de'}
+  attribution: © GDI-Th
+  coverage:
+    name: Thüringen
+    bbox: [9.85484026, 50.15442687, 12.71188404, 51.66367013]
+  cors: true
+  epsg3857: true
+  usage: 'Capabilities: no restrictions (AccessConstraints NONE); no key; no rate limit stated; max 5000 px.'
+  key_required: false
+  status: verified
+  checked: 2026-11-01
+  used_for: [basemap-aerial]
+  notes: 'Scale 44..2000001: renders z9+. Current capabilities state CC BY 4.0 with ''Namensnennung: © GDI-Th''; older sources
+    still show dl-de/by-2-0 with ''© Thüringer Landesamt für Bodenmanagement und Geoinformation'' (a forum quotes a geoportal
+    notice that the switch is effective 2026-09-14). Also th_dop200rgb (2 m, scale 24999..2000001 = z9-z14).'
+- id: rheinland-pfalz-dop20
+  title: {en: Rhineland-Palatinate aerial imagery (DOP20), de: Rheinland-Pfalz Luftbilder (DOP20)}
+  provider: Landesamt für Vermessung und Geobasisinformation Rheinland-Pfalz (LVermGeoRP)
+  type: wms
+  url: https://geo4.service24.rlp.de/wms/rp_dop20.fcgi
+  homepage: https://lvermgeo.rlp.de
+  layers: [rp_dop20]
+  format: image/jpeg
+  license: {name: Datenlizenz Deutschland – Namensnennung – Version 2.0, url: 'https://www.govdata.de/dl-de/by-2-0'}
+  attribution: ©GeoBasis-DE / LVermGeoRP 2026, dl-de/by-2-0, www.lvermgeo.rlp.de
+  coverage:
+    name: Rheinland-Pfalz
+    bbox: [6.037773, 48.897996, 8.617703, 51.000893]
+  cors: true
+  epsg3857: true
+  usage: Geldleistungsfrei; liability notes https://lvermgeo.rlp.de/geodaten-geoshop/open-data/gewaehrleistung-haftung/;
+    no key; no rate limit stated; max 10000 px.
+  key_required: false
+  status: verified
+  checked: 2026-11-01
+  used_for: [basemap-aerial]
+  notes: 'Official format ©GeoBasis-DE / LVermGeoRP<Jahr des Datenbezugs>, dl-de/by-2-0, www.lvermgeo.rlp.de, with [Daten
+    bearbeitet] if altered; we use the access year. Scale max 3e6: z8+. The previous URL rp_dop40.fcgi is gone (HTTP 410
+    since 2025); URLs may change again, see https://lvermgeo.rlp.de/geodaten-geoshop/open-data.'
+- id: saarland-dop20
+  title: {en: Saarland aerial imagery (DOP20), de: Saarland Luftbilder (DOP20)}
+  provider: Landesamt für Vermessung, Geoinformation und Landentwicklung Saarland (LVGL)
+  type: wms
+  url: https://geoportal.saarland.de/freewms/truedop
+  homepage: https://geoportal.saarland.de
+  layers: [sl_dop20_rgb]
+  format: image/jpeg
+  license: {name: Datenlizenz Deutschland – Namensnennung – Version 2.0, url: 'https://www.govdata.de/dl-de/by-2-0'}
+  attribution: © GeoBasis DE/LVGL-SL 2026
+  coverage:
+    name: Saarland
+    bbox: [6.340597, 49.082884, 7.438171, 49.659757]
+  cors: true
+  epsg3857: true
+  usage: 'Capabilities: noLimitations, keyword opendata; no key on the freewms path; no rate limit stated; max 10000 px.'
+  key_required: false
+  status: verified
+  checked: 2026-11-01
+  used_for: [basemap-aerial]
+  notes: 'Licence/attribution from GDI-DE catalogue snippets (not an official terms page); another record words it ''©LVGL
+    2022, dl-de/by-2-0, www.lvgl.saarland.de'': confirm with LVGL. truedop is an alias for the current year (capabilities
+    advertise freewms/dop2025). Older Saarland DOP years are access-restricted. No scale limit: set minzoom 10-12.'
+- id: sachsen-anhalt-dop20
+  title: {en: Saxony-Anhalt aerial imagery (DOP20), de: Sachsen-Anhalt Luftbilder (DOP20)}
+  provider: Landesamt für Vermessung und Geoinformation Sachsen-Anhalt (LVermGeo)
+  type: wms
+  url: https://www.geodatenportal.sachsen-anhalt.de/wss/service/ST_LVermGeo_DOP_WMS_OpenData/guest
+  homepage: https://www.lvermgeo.sachsen-anhalt.de
+  layers: [lsa_lvermgeo_dop20_2]
+  format: image/jpeg
+  license: {name: Datenlizenz Deutschland – Namensnennung – Version 2.0, url: 'https://www.govdata.de/dl-de/by-2-0'}
+  attribution: © GeoBasis-DE / LVermGeo ST
+  coverage:
+    name: Sachsen-Anhalt
+    bbox: [10.50923, 50.892719, 13.323255, 53.076941]
+  cors: false
+  epsg3857: true
+  usage: Listed on the LVermGeo open-data page; no key (guest path); no rate limit stated; max 4096 px. https://www.lvermgeo.sachsen-anhalt.de/de/gdp-open-data.html
+  key_required: false
+  status: needs-proxy
+  checked: 2026-11-01
+  used_for: [basemap-aerial]
+  notes: 'No Access-Control-Allow-Origin for http://localhost:5173 (nor any plain-http origin); https origins are reflected
+    (Vary: Origin), so production over HTTPS may work directly but dev needs the proxy or Vite over https. Attribution wording
+    from catalogue text (leaflet PDF returned 401). Also lsa_lvermgeo_dop100_unbesch (DOP100). No scale limit: set minzoom
+    11-12.'
+- id: schleswig-holstein-dop20
+  title: {en: Schleswig-Holstein aerial imagery (DOP20), de: Schleswig-Holstein Luftbilder (DOP20)}
+  provider: Landesamt für Vermessung und Geoinformation Schleswig-Holstein (LVermGeo SH)
+  type: wms
+  url: https://dienste.gdi-sh.de/WMS_SH_DOP20col_OpenGBD
+  homepage: https://www.schleswig-holstein.de/DE/landesregierung/ministerien-behoerden/LVERMGEOSH/
+  layers: [sh_dop20_rgb]
+  format: image/jpeg
+  license: {name: Creative Commons Namensnennung 4.0 International (CC BY 4.0), url: 'http://creativecommons.org/licenses/by/4.0/'}
+  attribution: © GeoBasis-DE/LVermGeo SH/CC BY 4.0
+  coverage:
+    name: Schleswig-Holstein
+    bbox: [7.823156, 53.298791, 11.415539, 55.154323]
+  cors: false
+  epsg3857: true
+  usage: Open data (keyword opendata); no key; no rate limit stated; max 5000 px.
+  key_required: false
+  status: needs-proxy
+  checked: 2026-11-01
+  used_for: [basemap-aerial]
+  notes: 'No Access-Control-Allow-Origin for http://localhost:5173 (nor any plain-http origin); https origins are reflected
+    (Vary: Origin). Source note exactly as quoted in capabilities. No scale limit: set minzoom 11-12.'
+- id: mecklenburg-vorpommern-dop20
+  title: {en: Mecklenburg-Vorpommern aerial imagery (DOP20), de: Mecklenburg-Vorpommern Luftbilder (DOP20)}
+  provider: Landesamt für innere Verwaltung M-V (LAiV), Amt für Geoinformation, Vermessung und Katasterwesen
+  type: wms
+  url: https://www.geodaten-mv.de/dienste/adv_dop
+  homepage: https://www.geoportal-mv.de
+  layers: [mv_dop]
+  format: image/jpeg
+  minzoom: 11
+  license: {name: Creative Commons Namensnennung 4.0 International (CC BY 4.0), url: 'https://creativecommons.org/licenses/by/4.0'}
+  attribution: © GeoBasis-DE/M-V 2026
+  coverage:
+    name: Mecklenburg-Vorpommern
+    bbox: [10.33942, 53.039183, 14.47699, 54.820921]
+  cors: true
+  epsg3857: true
+  usage: 'Fees: ''Es gelten keine Bedingungen''; clearly visible source note required; no key; no rate limit stated; max
+    4192 px. https://www.laiv-mv.de/static/LAIV/Geoinformation/Dateien/Geobasisdaten/Kurzbeschreibung_WMS_DOP.pdf'
+  key_required: false
+  status: verified
+  checked: 2026-11-01
+  used_for: [basemap-aerial]
+  notes: 'Scale max 400001: renders z11+ only. Source note is ''© GeoBasis-DE/M-V <Jahr der letzten Datenlieferung>'' (we
+    use the access year). 20 cm, about 3-year update cycle.'
+- id: bremen-dop10
+  title: {en: 'Bremen and Bremerhaven aerial imagery (DOP10, 2025)', de: 'Bremen und Bremerhaven Luftbilder (DOP10, 2025)'}
+  provider: Landesamt GeoInformation Bremen
+  type: wms
+  url: https://geodienste.bremen.de/wms_dop_lb
+  homepage: https://www.geo.bremen.de
+  layers: [dop10_2025_HB, dop10_2025_BHV]
+  format: image/jpeg
+  license: {name: 'Creative Commons Namensnennung (CC BY, 4.0)', url: 'https://creativecommons.org/licenses/by/4.0/deed.de'}
+  attribution: Landesamt GeoInformation Bremen
+  coverage:
+    name: Bremen und Bremerhaven
+    bbox: [8.45982, 53.0062, 9.0139, 53.6128]
+  cors: true
+  epsg3857: true
+  usage: 'AccessConstraints: no access restrictions; no key; no rate limit stated; max 14276 px.'
+  key_required: false
+  status: verified
+  checked: 2026-11-01
+  used_for: [basemap-aerial]
+  notes: 'Licence version is not stated in the capabilities (CC-BY); other Bremen records and a 2024 notice say CC BY 4.0.
+    Layer names are year-based (dop10_2025_*) and change with each flight; the combined service also has DOP10 CIR and historic
+    years. Separate service wms_dop20_2023 (DOP20_2023_HB/BHV). Two enclaves: bbox is the union. No scale limit.'
+- id: eox-s2cloudless-2025
+  title: {en: Sentinel-2 cloudless 2025 (EOX satellite mosaic), de: 'Sentinel-2 cloudless 2025 (EOX, Satellitenbildmosaik)'}
+  provider: EOX IT Services GmbH
+  type: raster-xyz
+  url: https://tiles.maps.eox.at/wmts/1.0.0/s2cloudless-2025_3857/default/g/{z}/{y}/{x}.jpg
+  homepage: https://cloudless.eox.at
+  layers: [s2cloudless-2025_3857]
+  maxzoom: 14
+  license: {name: CC BY-NC-SA 4.0 (non-commercial; commercial use needs an EOX licence), url: 'https://creativecommons.org/licenses/by-nc-sa/4.0/'}
+  attribution: EOxCloudless https://cloudless.eox.at by EOX IT Services GmbH (Contains modified Copernicus Sentinel data
+    2025)
+  coverage:
+    name: World
+    bbox: [-180, -85.0511287, 180, 85.0511287]
+  cors: true
+  usage: Non-commercial use only for 2018-2025 layers (academic research, education, university projects allowed); commercial
+    production use of the public WMTS is prohibited. Fair use, no SLA, no numeric limits; servers slow down or block traffic
+    spikes and redirect to maps.eox.at under heavy load. Cache tiles; attribution must be visible in the map UI.
+  key_required: false
+  status: verified
+  checked: 2026-11-01
+  used_for: [basemap-aerial]
+  notes: 'Coarse global aerial fallback (10 m Sentinel-2). MapLibre source: type raster, tiles=[url], tileSize=256, minzoom=0,
+    maxzoom=14 (native limit per EOX FAQ; the server also returns upsampled tiles to z17+), format jpg. The template order
+    is {z}/{y}/{x} (TileMatrix/TileRow/TileCol); matrix set g and GoogleMapsCompatible are identical. Capabilities https://tiles.maps.eox.at/wmts/1.0.0/WMTSCapabilities.xml
+    (the _3857 layers are the EPSG:3857 ones). ACAO echoes any Origin (plus Allow-Credentials true). Link the attribution
+    to https://cloudless.eox.at and https://eox.at; also embed it in exported screenshots. Page https://cloudless.eox.at/license-non-commercial.
+    Uncertainty: Fraunhofer IGD involvement may count as commercial; if so use eox-s2cloudless-2016 or ask cloudless@eox.at.
+    Verified end to end with MapLibre 6.16.0.'
+- id: eox-s2cloudless-2016
+  title: {en: 'Sentinel-2 cloudless 2016 (EOX, CC BY 4.0)', de: 'Sentinel-2 cloudless 2016 (EOX, CC BY 4.0)'}
+  provider: EOX IT Services GmbH
+  type: raster-xyz
+  url: https://tiles.maps.eox.at/wmts/1.0.0/s2cloudless_3857/default/g/{z}/{y}/{x}.jpg
+  homepage: https://cloudless.eox.at
+  layers: [s2cloudless_3857]
+  license: {name: CC BY 4.0, url: 'https://creativecommons.org/licenses/by/4.0/'}
+  attribution: EOxCloudless https://cloudless.eox.at by EOX IT Services GmbH (Contains modified Copernicus Sentinel data
+    2016 & 2017)
+  coverage:
+    name: World
+    bbox: [-180, -85.0511287, 180, 85.0511287]
+  cors: true
+  usage: CC BY 4.0, so commercial apps may use the free endpoint 'provided traffic is reasonable' (EOX FAQ); no uptime guarantee,
+    rate assurance or SLA; same heavy-load rate limiting as the other EOX layers.
+  key_required: false
+  status: candidate
+  checked: 2026-11-01
+  used_for: [basemap-aerial-alternative]
+  notes: Commercial-safe alternative to eox-s2cloudless-2025; imagery is about ten years old. Same template pattern with
+    layer s2cloudless_3857, tileSize 256, maxzoom 14, jpg. One z12 tile verified (200, image/jpeg, 256x256, ACAO echoes
+    Origin). The attribution follows the EOX license page; the WMTS capabilities abstract for this layer says only "2016".
+- id: hessen-dtk
+  title: {en: Hessen topographic map (DTK25/50/100), de: Hessen Topographische Karte (DTK25/50/100)}
+  provider: Hessische Verwaltung für Bodenmanagement und Geoinformation (HVBG)
+  type: wms
+  url: https://www.gds-srv.hessen.de/cgi-bin/lika-services/ogc-free-maps.ows
+  homepage: https://gds.hessen.de
+  layers: [he_dtk]
+  format: image/png
+  minzoom: 13
+  license: {name: Datenlizenz Deutschland – Zero – Version 2.0, url: 'https://www.govdata.de/dl-de/zero-2-0'}
+  attribution: 'Geobasisdaten © Hessische Verwaltung für Bodenmanagement und Geoinformation: Topographische Landeskarten'
+  coverage:
+    name: Hessen
+    bbox: [7.41867, 49.25, 10.5, 51.7596]
+  cors: true
+  epsg3857: true
+  usage: Same HVBG terms as hessen-dop20 (WMS for DTK is listed as free); no key; no rate limit published.
+  key_required: false
+  status: verified
+  checked: 2026-11-01
+  used_for: [overlay-topo]
+  notes: 'Scale 1..100000: renders z13+ only (z12 returns blank 758 B PNG). Use he_uek below z13. Licence name Zero taken
+    from a GDI-DE catalogue record (capabilities only state the HVGG §18 wording). he_pg (Präsentationsgraphik, z13+) is
+    an alternative cartographic style, also verified.'
+- id: hessen-uek
+  title: {en: Hessen overview map (UEK), de: Hessen Übersichtskarte (UEK)}
+  provider: Hessische Verwaltung für Bodenmanagement und Geoinformation (HVBG)
+  type: wms
+  url: https://www.gds-srv.hessen.de/cgi-bin/lika-services/ogc-free-maps.ows
+  homepage: https://gds.hessen.de
+  layers: [he_uek]
+  format: image/png
+  license: {name: Datenlizenz Deutschland – Zero – Version 2.0, url: 'https://www.govdata.de/dl-de/zero-2-0'}
+  attribution: 'Geobasisdaten © Hessische Verwaltung für Bodenmanagement und Geoinformation: Topographische Gebietskarten'
+  coverage:
+    name: Hessen
+    bbox: [7.4177, 49.2646, 10.5009, 51.7749]
+  cors: true
+  epsg3857: true
+  usage: Same HVBG terms as hessen-dop20; no key; no rate limit published.
+  key_required: false
+  status: verified
+  checked: 2026-11-01
+  used_for: [overlay-overview]
+  notes: 'Sub-layers 10..1e8: renders z3+, tested z6 and z10. Small-scale companion to hessen-dtk (z13+); crude when overzoomed,
+    use maxzoom about 12.'
+- id: hessen-alk
+  title: {en: Hessen cadastral map (ALKIS Liegenschaftskarte), de: Hessen Liegenschaftskarte (ALKIS)}
+  provider: Hessische Verwaltung für Bodenmanagement und Geoinformation (HVBG)
+  type: wms
+  url: https://www.gds-srv.hessen.de/cgi-bin/lika-services/ogc-free-maps.ows
+  homepage: https://gds.hessen.de
+  layers: [he_alk]
+  format: image/png
+  minzoom: 16
+  license: {name: Datenlizenz Deutschland – Zero – Version 2.0, url: 'https://www.govdata.de/dl-de/zero-2-0'}
+  attribution: 'Geobasisdaten © Hessische Verwaltung für Bodenmanagement und Geoinformation: Liegenschaftskarte'
+  coverage:
+    name: Hessen
+    bbox: [7.72786, 49.3853, 10.2505, 51.6625]
+  cors: true
+  epsg3857: true
+  usage: Same HVBG terms as hessen-dop20 (Liegenschaftskarte WMS listed as free; owner/personal data excluded from the open
+    offer).
+  key_required: false
+  status: verified
+  checked: 2026-11-01
+  used_for: [overlay-cadastre]
+  notes: 'Scale 1..10000: renders z16+ only. he_alk is opaque. For an overlay on aerial imagery use he_alk_t (white linework)
+    and add TRANSPARENT=TRUE with FORMAT=image/png; without it the tile is plain white. he_alk_grau is the greyscale variant.'
+- id: mapterhorn-terrain
+  title: {en: 'Mapterhorn terrain tiles (DEM, 1 m in Germany)', de: 'Mapterhorn-Geländekacheln (Höhenmodell, 1 m in Deutschland)'}
+  provider: Mapterhorn
+  type: raster-dem
+  url: https://tiles.mapterhorn.com/{z}/{x}/{y}.webp
+  homepage: https://mapterhorn.com
+  layers: []
+  maxzoom: 16
+  license: {name: 'Per-source open data (Hessen DGM1: DL-DE Zero 2.0; Copernicus GLO-30: free, full and open); code BSD-3-Clause',
+    url: 'https://mapterhorn.com/attribution'}
+  attribution: © Mapterhorn
+  coverage:
+    name: 'World (Germany: 1 m)'
+    bbox: [-180, -85.0511287, 180, 85.0511287]
+  cors: true
+  usage: No published usage policy, rate limit or SLA; free public Cloudflare-hosted service with 7-day cache headers; request
+    metadata is logged up to 30 days (privacy policy). Use the browser cache, no crawling; do not send custom request headers.
+  key_required: false
+  status: verified
+  checked: 2026-11-01
+  used_for: [terrain, hillshade]
+  notes: 'MapLibre source: type raster-dem, tiles=[url], encoding=terrarium, tileSize=512, minzoom=0, maxzoom=16 (set explicitly,
+    the TileJSON has none), format webp. Alternative TileJSON https://tiles.mapterhorn.com/tilejson.json supplies encoding,
+    tileSize and attribution (explicit source options override it in MapLibre 6.16). Without encoding=terrarium MapLibre
+    defaults to mapbox decoding (832 km elevations, verified). Data ends at z16 over Hesse/Darmstadt (z17+ = 404, silently
+    handled by MapLibre but wasteful); 30 m-only areas end at z12; Baden-Wuerttemberg 0.25 m reaches z18. Over Darmstadt
+    the sources are Hessen ATKIS-DGM 1 (1 m, dl-de/zero-2.0) and Copernicus GLO-30 (30 m). Verified end to end with MapLibre
+    6.16.0 (terrain elevation at Luisenplatz 141.48 m, all tiles 200). No pmtiles library needed. Link the attribution text
+    to https://mapterhorn.com/attribution. Pre-1.0 project (download_urls.json version 0.0.13), no SLA.'
+- id: aws-terrain-terrarium
+  title: {en: 'AWS Terrain Tiles (Terrarium, about 30 m)', de: 'AWS-Geländekacheln (Terrarium, ca. 30 m)'}
+  provider: Mapzen / Tilezen (AWS Open Data)
+  type: raster-dem
+  url: https://s3.amazonaws.com/elevation-tiles-prod/terrarium/{z}/{x}/{y}.png
+  homepage: https://registry.opendata.aws/terrain-tiles/
+  layers: []
+  maxzoom: 15
+  license: {name: 'Mixed open data with per-source credits (Mapzen docs: CC BY 4.0)', url: 'https://github.com/tilezen/joerd/blob/master/docs/attribution.md'}
+  attribution: Europe terrain data produced using Copernicus data and information funded by the European Union - EU-DEM
+    layers; Global ETOPO1 terrain data U.S. National Oceanic and Atmospheric Administration; United States 3DEP (formerly
+    NED) and global GMTED2010 and SRTM terrain data courtesy of the U.S. Geological Survey
+  coverage:
+    name: World (z0-15)
+    bbox: [-180, -85.0511287, 180, 85.0511287]
+  cors: true
+  usage: 'AWS Open Data public bucket, anonymous access, no key; no published rate limit or SLA. Mapzen docs: ''The S3 tiles
+    are meant for efficient networking with EC2 resources only'' and are not CDN-cached.'
+  key_required: false
+  status: verified
+  checked: 2026-11-01
+  used_for: [terrain-fallback]
+  notes: 'Fallback for mapterhorn-terrain. MapLibre source: type raster-dem, tiles=[url], encoding=terrarium, tileSize=256,
+    minzoom=0, maxzoom=15 (z16 = 404), format png. Same bucket via https://elevation-tiles-prod.s3.amazonaws.com/terrarium/...
+    also works. Over Germany the source is EU-DEM (about 30 m); elevation at Luisenplatz 147.27 m versus 141.48 m from the
+    1 m Mapterhorn data. Static dataset (Last-Modified 2017-11-15), no Cache-Control, no CDN (about 0.6 s per tile from
+    Germany). EU replica bucket elevation-tiles-prod-eu answers 403 and the Mapzen hosted service no longer exists. For
+    other countries add their lines from the attribution document. Verified end to end with MapLibre 6.16.0.'
+- id: mapterhorn-terrain-pmtiles
+  title: {en: Mapterhorn terrain tiles (PMTiles archives), de: Mapterhorn-Geländekacheln (PMTiles-Archive)}
+  provider: Mapterhorn
+  type: pmtiles
+  url: https://download.mapterhorn.com/planet.pmtiles
+  homepage: https://mapterhorn.com
+  layers: []
+  license: {name: 'Per-source open data (Hessen DGM1: DL-DE Zero 2.0; Copernicus GLO-30: free, full and open); code BSD-3-Clause',
+    url: 'https://mapterhorn.com/attribution'}
+  attribution: © Mapterhorn
+  coverage:
+    name: 'World (Germany: 1 m)'
+    bbox: [-180, -85.0511287, 180, 85.0511287]
+  cors: true
+  usage: 'Same as mapterhorn-terrain; no published limits. Files are 221 to 356 GB: only range requests, never download
+    them whole.'
+  key_required: false
+  status: candidate
+  checked: 2026-11-01
+  used_for: [terrain-candidate]
+  notes: 'Alternative route, not recommended: the XYZ endpoint serves the identical bytes. planet.pmtiles covers z0-12 (355.6
+    GB); z13+ shards are named 6-{x>>(z-6)}-{y>>(z-6)}.pmtiles (Darmstadt: https://download.mapterhorn.com/6-33-21.pmtiles,
+    z13-18, 221 GB); list https://download.mapterhorn.com/download_urls.json. Needs the pmtiles library (4.3.0 in Mapterhorn''s
+    example) plus maplibregl.addProtocol with a custom z/x/y to file mapping; encoding terrarium, tileSize 512, webp. Range
+    GET returns 206 with ACAO *, but ETag and Content-Range are not exposed and the OPTIONS preflight returns 403, so any
+    request header beyond a simple Range (If-Match, custom) fails; works in Chrome 156 (library returned the same 68,538-byte
+    tile as XYZ); Firefox and Safari not tested.'
+- id: basemapde-terrain-dgm5-rgb
+  title: {en: basemap.de 3D Terrain DGM5 (RGB elevation tiles), de: basemap.de 3D Gelände DGM5 (RGB-Höhenkacheln)}
+  provider: Bundesamt für Kartographie und Geodäsie (BKG) for AdV and the Länder (basemap.de 3D, beta)
+  type: raster-dem
+  url: https://sgx.geodatenzentrum.de/gdz_basemapde_3d_gelaende/dgm5_3857_rgb.json
+  homepage: https://basemap.de
+  layers: []
+  license: {name: 'basemap.de 3D-Beta Dienste licence (test phase, free of charge, no storing)', url: 'https://basemap.de/data/produkte/3d/lizenzen/lizenz_basemapde_3D-Beta.pdf'}
+  attribution: © GeoBasis-DE/BKG 2026
+  coverage:
+    name: Germany
+    bbox: [6.098034, 47.23942, 15.578555, 55.054344]
+  usage: Beta licence as for the buildings. Terrain data is updated irregularly (multi-year).
+  key_required: false
+  status: candidate
+  checked: 2026-11-01
+  used_for: [terrain-candidate]
+  notes: 'TileJSON for MapLibre raster-dem. Encoding per BKG data model page: height = -10000
+    + ((R*256*256 + G*256 + B)*0.1), i.e. MapLibre default ''mapbox''. Official example passes tileSize as the string ''256'';
+    pass the number 256. TileJSON fields (minzoom, maxzoom, bounds, tile size) and CORS not verified (sgx down). Combining
+    with the Three.js LoD2 buildings layer is reported not to work.'
+- id: basemapde-3d-buildings-lod2-3857
+  title: {en: 'basemap.de 3D Buildings LoD2 (3D Tiles, MapLibre variant)', de: 'basemap.de 3D Gebäude LoD2 (3D Tiles, MapLibre-Variante)'}
+  provider: Bundesamt für Kartographie und Geodäsie (BKG) for AdV and the Länder (basemap.de 3D, beta)
+  type: 3dtiles
+  url: https://sgx.geodatenzentrum.de/gdz_basemapde_3d_gebaeude/lod2_3857_null.json
+  homepage: https://basemap.de
+  layers: []
+  license: {name: 'basemap.de 3D-Beta Dienste licence (test phase, free of charge, no storing)', url: 'https://basemap.de/data/produkte/3d/lizenzen/lizenz_basemapde_3D-Beta.pdf'}
+  attribution: © GeoBasis-DE/BKG 2026
+  coverage:
+    name: Germany
+    bbox: [6.098034, 47.23942, 15.578555, 55.054344]
+  usage: 'Beta licence: test purposes, data only together with the service, no download or storing except at runtime, add
+    a Veränderungshinweis when combined with other services. Licensing of the official release still unclear (news 2026-09-25).
+    No published rate limit.'
+  key_required: false
+  status: candidate
+  checked: 2026-11-01
+  used_for: [buildings-lod2]
+  notes: 'NOT live-verified (sgx down); tileset fields (asset.version, geometricError, boundingVolume, content format) could
+    not be read. Docs/slides (2023): 3D Tiles 1.0, b3dm via pg2b3dm 0.11, refine ADD, attributes gml_id, Gebäudefunktion,
+    Surface. BKG''s MapLibre helper is a Three.js custom layer (Maplibre3DTiles.js, built on MapLibre 4.7.1): risky on v6
+    (map.transform removed), flat terrain only. The older names lod2_4978_* are from the 2025 docs; the 2026 page lists
+    lod2_4326_null, lod2_4326_dgm5, lod2_3857_null.'
+- id: basemapde-3d-buildings-lod2-4326-dgm5
+  title: {en: 'basemap.de 3D Buildings LoD2 on DGM5 terrain (3D Tiles, EPSG:4326)', de: 'basemap.de 3D Gebäude LoD2 auf
+      DGM5-Gelände (3D Tiles, EPSG:4326)'}
+  provider: Bundesamt für Kartographie und Geodäsie (BKG) for AdV and the Länder (basemap.de 3D, beta)
+  type: 3dtiles
+  url: https://sgx.geodatenzentrum.de/gdz_basemapde_3d_gebaeude/lod2_4326_dgm5.json
+  homepage: https://basemap.de
+  layers: []
+  license: {name: 'basemap.de 3D-Beta Dienste licence (test phase, free of charge, no storing)', url: 'https://basemap.de/data/produkte/3d/lizenzen/lizenz_basemapde_3D-Beta.pdf'}
+  attribution: © GeoBasis-DE/BKG 2026
+  coverage:
+    name: Germany
+    bbox: [6.098034, 47.23942, 15.578555, 55.054344]
+  usage: Beta licence as for the 3857 variant.
+  key_required: false
+  status: later
+  checked: 2026-11-01
+  used_for: [buildings-lod2]
+  notes: Documented as the Cesium variant (buildings on DGM5 terrain). Needs a Cesium/deck.gl-class renderer, not usable
+    with MapLibre alone. Not live-verified. The lod2_4326_null.json twin (height zero) is documented too. The older lod2_4978_dgm5.json
+    name may no longer exist.
+- id: photon-komoot
+  title: {en: Photon geocoder (komoot public demo instance), de: Photon-Geocoder (öffentliche komoot-Demo-Instanz)}
+  provider: komoot (Photon, open source)
+  type: geocoder
+  url: https://photon.komoot.io/api/
+  homepage: https://photon.komoot.io
+  layers: []
+  license: {name: ODbL 1.0 (OpenStreetMap data); Photon software Apache-2.0, url: 'https://www.openstreetmap.org/copyright'}
+  attribution: © OpenStreetMap contributors
+  coverage:
+    name: World
+    bbox: [-180, -90, 180, 90]
+  cors: true
+  usage: 'Demo server, fair use: ''You are welcome to use the API for your project as long as the number of requests stay
+    in a reasonable limit. Extensive usage will be throttled or completely banned.'' No numeric limit, no availability guarantee,
+    changes without notice (https://github.com/komoot/photon#demo-server, https://photon.komoot.io/). Our rule: only user-triggered
+    debounced requests (at least 300 ms, at least 3 characters), cache responses; self-host for volume.'
+  key_required: false
+  status: verified
+  checked: 2026-11-01
+  used_for: [geocoding-search]
+  notes: 'Public instance runs Photon 1.3.0, data timestamp 2026-10-24. lang accepts only default, de, en, fr (HTTP 400
+    otherwise). extent is [west, north, east, south]. The same OSM object can appear several times with different osm_key/osm_value:
+    de-duplicate by osm_type + osm_id. Verified filters: countrycode=DE, bbox, layer, osm_tag (deprecated), include=osm.<key>.<value>;
+    soft focus lat/lon with zoom (default 12) and location_bias_scale (default 0.4; zoom=13 and 0.1 favours local hits).
+    Also /reverse, /structured, /status. komoot asks for no attribution text; the OSM credit comes from ODbL and the OSMF
+    attribution guidelines. Fraunhofer IGD: W22598446 at lon 8.659876, lat 49.8743133.'
+- id: nominatim-osm
+  title: {en: Nominatim geocoder (OSM public instance), de: Nominatim-Geocoder (öffentliche OSM-Instanz)}
+  provider: OpenStreetMap Foundation (Operations Working Group)
+  type: geocoder
+  url: https://nominatim.openstreetmap.org/search
+  homepage: https://nominatim.org
+  layers: []
+  license: {name: ODbL 1.0 (OpenStreetMap data), url: 'https://www.openstreetmap.org/copyright'}
+  attribution: © OpenStreetMap contributors
+  coverage:
+    name: World
+    bbox: [-180, -90, 180, 90]
+  cors: true
+  usage: 'Acceptable-use policy (https://operations.osmfoundation.org/policies/nominatim/): absolute maximum 1 request per
+    second for the whole app (all users summed); valid User-Agent or Referer identifying the app; display attribution; no
+    auto-complete; no systematic or bulk queries; cache results; the app must be switchable without a software update; LLM
+    clause: public API only by deliberate, informed developer decision. Backend only.'
+  key_required: false
+  status: verified
+  checked: 2026-11-01
+  used_for: [geocoding-backend]
+  notes: 'BACKEND ONLY (ACAO * works, but a browser cannot set a User-Agent and the policy forbids client-side auto-complete):
+    one global queue with at least 1.1 s spacing, cache every result, custom User-Agent with contact, configurable base
+    URL. Because the toolbox is agentic, enforce limits in code, not in prompts. boundingbox is [south, north, west, east]
+    as strings. polygon_geojson=1 for Darmstadt returns 1917 vertices (44 KB for one result): use polygon_threshold. Output
+    language follows Accept-Language (curl sends none, so local names): pass accept-language explicitly. Tested once: q=Darmstadt
+    gave relation 62581, lat 49.8727750, lon 8.6511770.'
+- id: overpass-fossgis
+  title: {en: Overpass API (FOSSGIS public instance), de: Overpass-API (öffentliche FOSSGIS-Instanz)}
+  provider: FOSSGIS e.V. (overpass-api.de)
+  type: api
+  url: https://overpass-api.de/api/interpreter
+  homepage: https://overpass-api.de
+  layers: []
+  license: {name: ODbL 1.0 (OpenStreetMap data), url: 'https://www.openstreetmap.org/copyright'}
+  attribution: Data © OpenStreetMap contributors (ODbL), contribute/report error
+  coverage:
+    name: World
+    bbox: [-180, -90, 180, 90]
+  cors: true
+  usage: 'Fair use (https://dev.overpass-api.de/overpass-doc/en/preface/commons.html, https://wiki.openstreetmap.org/wiki/Overpass_API):
+    under 10,000 queries and under 1 GB per day for one-off use; for regular automated use divide by 100 (under 100 queries,
+    under 10 MB per day); app traffic counts as the sum of all users; User-Agent or Referer identifying the app; no parallel
+    scripts (scripts: 1 connection); after 429/406 wait 30 s; commercial use only on own or paid servers. Server is overloaded:
+    do not expect reliability.'
+  key_required: false
+  status: candidate
+  checked: 2026-11-01
+  used_for: [osm-features-backend]
+  notes: 'BACKEND ONLY, POST form field data=<OverpassQL>. Overloaded on test day: instant 502 ''at capacity'', hangs of
+    20-45 s with zero bytes, then 200 after 44.7 s (query) and 40.3 s (status); CORS header present even on 502. Use client
+    timeout of at least 90 s, one request at a time, exponential backoff, persistent cache, small bboxes and [timeout:N];
+    keep the endpoint configurable (FOSSGIS: do not hardcode). Fallback https://overpass.private.coffee/api/interpreter
+    did not answer in 2 attempts (unverified). For heavy use run an own instance or a Geofabrik extract. Test query returned
+    3 charging_station nodes in 49.87,8.64,49.88,8.66. Status candidate stands for ''partial''; promote to verified once
+    an instance strategy is chosen.'

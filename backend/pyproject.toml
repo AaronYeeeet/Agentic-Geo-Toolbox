@@ -1,0 +1,39 @@
+[project]
+name = "agentic-geo-toolbox-backend"
+version = "0.1.0"
+description = "Backend of the Agentic Geo-Toolbox: FastAPI, SSE agent protocol, source registry, mock agent"
+authors = [{ name = "Ritvik Maini" }]
+requires-python = ">=3.12"
+dependencies = [
+    "fastapi>=0.162",
+    "uvicorn[standard]>=0.54",
+    "pydantic>=2.14",
+    "httpx>=0.28",
+    "shapely>=2.2",
+    "pyproj>=3.8",
+    "pyyaml>=6.0",
+]
+
+[dependency-groups]
+dev = [
+    "httpx2>=2.16.0",
+    "pytest>=9.2",
+    "ruff>=0.17",
+]
+
+[tool.uv]
+package = false
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
+testpaths = ["tests"]
+addopts = "-q"
+
+[tool.ruff]
+line-length = 120
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM"]
+# Word lists read better as split strings.
+ignore = ["SIM905"]

@@ -1,0 +1,246 @@
+@import "tailwindcss";
+/* In a cascade layer, so Tailwind utilities (e.g. `absolute inset-0` on the map container) win over it. */
+@import "maplibre-gl/dist/maplibre-gl.css" layer(base);
+@import "tw-animate-css";
+@import "shadcn/tailwind.css";
+@import "@fontsource/barlow/400.css";
+@import "@fontsource/barlow/500.css";
+@import "@fontsource/barlow/600.css";
+@import "@fontsource/barlow/400-italic.css";
+@import "@fontsource/barlow-semi-condensed/500.css";
+@import "@fontsource/barlow-semi-condensed/600.css";
+
+/*
+ * Design tokens. The map is the content; the chrome is a quiet instrument panel.
+ * - Water (petrol blue): primary actions and active states.
+ * - Overprint (magenta): the user's area. Selection outline, selection chip and highlights share it, the way
+ *   cartographers overprint annotations in magenta.
+ * - Demo data is marked with hatched legend swatches.
+ */
+:root {
+  --ink: #1d2733;
+  --ink-2: #44505c;
+  --ink-3: #69737e;
+  --paper: #ffffff;
+  --fog: #f1f3f4;
+  --fog-2: #e6e9ec;
+  --rule: #d8dde2;
+  --water: #1f5f8b;
+  --water-ink: #174a6c;
+  --water-wash: #e8f1f7;
+  --overprint: #c8207a;
+  --overprint-wash: #fcebf3;
+  --ok: #2f7d4f;
+  --danger: #b42318;
+  --danger-wash: #fdf0ee;
+  --warn: #9a5b00;
+
+  --background: var(--paper);
+  --foreground: var(--ink);
+  --card: var(--paper);
+  --card-foreground: var(--ink);
+  --popover: var(--paper);
+  --popover-foreground: var(--ink);
+  --primary: var(--water);
+  --primary-foreground: #ffffff;
+  --secondary: var(--fog);
+  --secondary-foreground: var(--ink);
+  --muted: var(--fog);
+  --muted-foreground: var(--ink-3);
+  --accent: var(--water-wash);
+  --accent-foreground: var(--water-ink);
+  --destructive: var(--danger);
+  --border: var(--rule);
+  --input: var(--rule);
+  --ring: var(--water);
+  --radius: 0.75rem;
+
+  /* One elevation for everything that floats over the map. */
+  --shadow-float: 0 1px 2px rgb(18 32 46 / 0.1), 0 6px 20px -4px rgb(18 32 46 / 0.18);
+  /* Space the bottom sheet takes on phones; bottom map controls sit above it. */
+  --sheet-offset: 0px;
+}
+
+@theme inline {
+  --font-sans: "Barlow", ui-sans-serif, system-ui, sans-serif;
+  --font-heading: "Barlow Semi Condensed", "Barlow", ui-sans-serif, sans-serif;
+  --font-condensed: "Barlow Semi Condensed", "Barlow", ui-sans-serif, sans-serif;
+
+  --color-ink: var(--ink);
+  --color-ink-2: var(--ink-2);
+  --color-ink-3: var(--ink-3);
+  --color-paper: var(--paper);
+  --color-fog: var(--fog);
+  --color-fog-2: var(--fog-2);
+  --color-rule: var(--rule);
+  --color-water: var(--water);
+  --color-water-ink: var(--water-ink);
+  --color-water-wash: var(--water-wash);
+  --color-overprint: var(--overprint);
+  --color-overprint-wash: var(--overprint-wash);
+  --color-ok: var(--ok);
+  --color-danger: var(--danger);
+  --color-danger-wash: var(--danger-wash);
+  --color-warn: var(--warn);
+
+  --color-ring: var(--ring);
+  --color-input: var(--input);
+  --color-border: var(--border);
+  --color-destructive: var(--destructive);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-accent: var(--accent);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-muted: var(--muted);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-secondary: var(--secondary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-primary: var(--primary);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-popover: var(--popover);
+  --color-card-foreground: var(--card-foreground);
+  --color-card: var(--card);
+  --color-foreground: var(--foreground);
+  --color-background: var(--background);
+
+  --radius-sm: calc(var(--radius) * 0.5);
+  --radius-md: calc(var(--radius) * 0.7);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) * 1.33);
+
+  --shadow-float: var(--shadow-float);
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+  html,
+  body,
+  #root {
+    height: 100%;
+  }
+  body {
+    @apply bg-background text-foreground font-sans antialiased;
+    font-size: 14px;
+    line-height: 1.45;
+    overflow: hidden;
+  }
+  button {
+    cursor: pointer;
+  }
+  :focus-visible {
+    outline: 2px solid var(--water);
+    outline-offset: 2px;
+  }
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+      animation-duration: 0.01ms !important;
+      transition-duration: 0.01ms !important;
+    }
+  }
+}
+
+@layer components {
+  /* Floating panels over the map. */
+  .float-panel {
+    background: var(--paper);
+    border: 1px solid var(--rule);
+    border-radius: var(--radius);
+    box-shadow: var(--shadow-float);
+  }
+  /* Legend swatch for demo data: hatched, so it reads as "not real data". */
+  .swatch-demo {
+    background-image: repeating-linear-gradient(
+      135deg,
+      var(--swatch) 0 2px,
+      color-mix(in srgb, var(--swatch) 25%, white) 2px 4px
+    );
+  }
+}
+
+/* MapLibre controls in the panel's voice. */
+.maplibregl-map {
+  font-family: var(--font-sans);
+}
+.maplibregl-ctrl-attrib {
+  font-size: 11px;
+  line-height: 1.4;
+  color: var(--ink-2);
+}
+.maplibregl-ctrl-attrib.maplibregl-compact {
+  background: rgb(255 255 255 / 0.92);
+}
+.maplibregl-ctrl-attrib a {
+  color: var(--ink-2);
+}
+.maplibregl-ctrl-bottom-left,
+.maplibregl-ctrl-bottom-right {
+  margin-bottom: var(--sheet-offset);
+}
+.maplibregl-ctrl-scale {
+  border-color: var(--ink-2);
+  color: var(--ink);
+  background: rgb(255 255 255 / 0.8);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+.maplibregl-popup-content {
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-float);
+  padding: 0;
+  font-size: 13px;
+}
+.maplibregl-popup-close-button {
+  font-size: 18px;
+  width: 28px;
+  height: 28px;
+  color: var(--ink-3);
+}
+
+/* Feature popup (map/popup.ts builds the DOM). */
+.gt-popup {
+  padding: 12px 14px 10px;
+  font-family: var(--font-sans);
+  color: var(--ink);
+}
+.gt-popup-title {
+  font-family: var(--font-heading);
+  font-size: 15px;
+  font-weight: 600;
+  line-height: 1.25;
+  padding-right: 18px;
+}
+.gt-popup-layer {
+  margin-top: 1px;
+  font-size: 12px;
+  color: var(--ink-3);
+}
+.gt-popup-empty {
+  margin-top: 8px;
+  font-size: 12.5px;
+  color: var(--ink-3);
+}
+.gt-popup-table {
+  margin-top: 8px;
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12.5px;
+  font-variant-numeric: tabular-nums;
+}
+.gt-popup-table th {
+  padding: 3px 10px 3px 0;
+  text-align: left;
+  vertical-align: top;
+  font-weight: 500;
+  color: var(--ink-3);
+  white-space: nowrap;
+}
+.gt-popup-table td {
+  padding: 3px 0;
+  word-break: break-word;
+}
+.gt-popup-table tr + tr {
+  border-top: 1px solid var(--fog-2);
+}

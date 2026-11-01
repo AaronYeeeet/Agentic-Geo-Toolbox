@@ -1,0 +1,165 @@
+{
+  "app": {
+    "name": "Geo-Toolbox",
+    "title": "Agentic Geo-Toolbox"
+  },
+  "language": {
+    "label": "Sprache",
+    "en": "English",
+    "de": "Deutsch"
+  },
+  "common": {
+    "close": "Schließen",
+    "loading": "Wird geladen…"
+  },
+  "map": {
+    "label": "Karte",
+    "zoomIn": "Vergrößern",
+    "zoomOut": "Verkleinern",
+    "resetNorth": "Nach Norden ausrichten",
+    "to3d": "Zur 3D-Ansicht wechseln",
+    "to2d": "Zur 2D-Ansicht wechseln",
+    "mode2d": "2D",
+    "mode3d": "3D",
+    "noWebgl": "Diese Karte braucht WebGL. Aktivieren Sie die Hardwarebeschleunigung im Browser oder nutzen Sie einen anderen Browser.",
+    "aerialNoCoverage": "Hier gibt es noch kein offenes hochaufgelöstes Luftbild. Stattdessen ist Sentinel-2 (10 m) zu sehen.",
+    "aerialUnavailable": "Die Luftbildquellen sind nicht verfügbar. Starten Sie das Backend, um sie zu laden.",
+    "popupEmpty": "Dieses Objekt hat keine Eigenschaften.",
+    "view3d": "3D-Ansicht"
+  },
+  "basemap": {
+    "label": "Grundkarte",
+    "choose": "Grundkarte wählen",
+    "osm": "OSM",
+    "official": "Amtlich",
+    "light": "Hell",
+    "relief": "Relief",
+    "aerial": "Luftbild",
+    "osmHint": "OpenStreetMap von OpenFreeMap",
+    "officialHint": "basemap.de farbig",
+    "lightHint": "basemap.de grau",
+    "reliefHint": "basemap.de-Relief mit Schummerung und Höhenlinien",
+    "aerialHint": "Luftbilder der Länder, wo sie offene Daten sind",
+    "fallback": "basemap.de ist gerade nicht erreichbar. Stattdessen ist OpenFreeMap zu sehen."
+  },
+  "layers": {
+    "title": "Ebenen",
+    "open": "Ebenen anzeigen",
+    "close": "Ebenen ausblenden",
+    "groups": {
+      "terrain": "Gelände",
+      "buildings": "Gebäude",
+      "aerial": "Luftbild und WMS",
+      "mydata": "Meine Daten",
+      "results": "Ergebnisse des Agenten"
+    },
+    "terrain3d": "3D-Gelände",
+    "hillshade": "Schummerung",
+    "buildings25d": "Gebäude 2,5D",
+    "lod2": "3D-Gebäude (LoD2)",
+    "lod2Planned": "Für eine spätere Iteration geplant",
+    "lod2Hint": "Funktioniert in der 3D-Ansicht",
+    "show": "{{title}} anzeigen",
+    "opacity": "Deckkraft von {{title}}",
+    "remove": "{{title}} entfernen",
+    "zoomTo": "Auf {{title}} zoomen",
+    "demo": "Demo-Daten",
+    "features_one": "{{count}} Objekt",
+    "features_other": "{{count}} Objekte",
+    "empty": {
+      "aerial": "WMS-Ebenen des Agenten erscheinen hier.",
+      "mydata": "Ziehen Sie eine Datei auf die Karte oder nutzen Sie die Büroklammer im Chat.",
+      "results": "Ebenen aus Antworten des Agenten erscheinen hier."
+    }
+  },
+  "search": {
+    "label": "Orte suchen",
+    "placeholder": "Orte in Deutschland suchen",
+    "clear": "Suche leeren",
+    "loading": "Suche läuft…",
+    "noResults": "Keine Orte gefunden",
+    "error": "Die Suche ist gerade nicht erreichbar. Versuchen Sie es gleich noch einmal.",
+    "useAsSelection": "Als Auswahl verwenden",
+    "attribution": "Suche mit Photon (komoot), Daten © OpenStreetMap-Mitwirkende"
+  },
+  "draw": {
+    "toolbar": "Auswahlwerkzeuge",
+    "rectangle": "Rechteck zeichnen",
+    "polygon": "Polygon zeichnen",
+    "feature": "Gebäude, Ort oder Ergebnis auswählen",
+    "view": "Aktuellen Ausschnitt verwenden",
+    "clear": "Auswahl löschen",
+    "hint": {
+      "rectangle": "Ziehen oder zwei gegenüberliegende Ecken klicken. Esc bricht ab.",
+      "polygon": "Klicken Sie Punkte. Doppelklick oder Klick auf den ersten Punkt beendet. Esc bricht ab.",
+      "feature": "Klicken Sie ein Gebäude, einen Ort oder ein Ergebnis. Esc bricht ab."
+    },
+    "kind": {
+      "rectangle": "Rechteck",
+      "polygon": "Polygon",
+      "feature": "Objekt",
+      "view": "Kartenausschnitt",
+      "search": "Suchergebnis"
+    }
+  },
+  "upload": {
+    "attach": "Datei anhängen (GeoJSON, CSV, KML, GPX)",
+    "dropTitle": "Loslassen, um sie zur Karte hinzuzufügen",
+    "dropFormats": "GeoJSON, CSV, KML oder GPX, bis 10 MB",
+    "added_one": "{{name}} mit {{count}} Objekt hinzugefügt",
+    "added_other": "{{name}} mit {{count}} Objekten hinzugefügt",
+    "errors": {
+      "tooLarge": "{{name}} ist größer als 10 MB.",
+      "unsupported": "{{name}} hat kein unterstütztes Format. Nutzen Sie GeoJSON, CSV, KML oder GPX.",
+      "invalid": "{{name}} konnte nicht gelesen werden. Prüfen Sie, ob die Datei gültiges {{format}} ist.",
+      "noCoordinates": "{{name}} hat keine Spalten für Breite und Länge. Nennen Sie sie lat und lon (oder latitude und longitude, Breite und Länge).",
+      "empty": "{{name}} enthält keine Objekte mit Koordinaten.",
+      "projected": "{{name}} hat projizierte Koordinaten (zum Beispiel EPSG:25832 aus QGIS). Exportieren Sie die Datei mit Längen- und Breitengraden in WGS84 (EPSG:4326) und versuchen Sie es noch einmal."
+    }
+  },
+  "chat": {
+    "title": "Geo-Assistent",
+    "demoBadge": "Demo-Agent",
+    "demoHint": "Iteration 0: gescriptete Antworten mit Demo-Daten",
+    "widen": "Chat verbreitern",
+    "narrow": "Chat verschmälern",
+    "collapse": "Chat ausblenden",
+    "open": "Chat öffnen",
+    "resize": "Chatbreite ändern",
+    "newChat": "Neue Unterhaltung",
+    "intro": "Fragen Sie nach Orten, Gebieten und Daten in Deutschland. Markieren Sie ein Gebiet auf der Karte, um Ihrer Frage einen Kontext zu geben.",
+    "examples": {
+      "charging": "Wo könnten in diesem Gebiet neue Ladesäulen hin?",
+      "schools": "Zeig alle Schulen im markierten Bereich.",
+      "area": "Wie groß ist das Gebiet und wie viel davon ist Grünfläche?",
+      "flyTo": "Flieg zum Fraunhofer IGD in Darmstadt und zeig das Luftbild."
+    },
+    "placeholder": "Fragen Sie etwas zu diesem Gebiet",
+    "send": "Senden",
+    "stop": "Stoppen",
+    "you": "Sie",
+    "assistant": "Assistent",
+    "steps_one": "{{count}} Schritt",
+    "steps_other": "{{count}} Schritte",
+    "stepRunning": "Läuft",
+    "stepDone": "Fertig",
+    "stepError": "Fehlgeschlagen",
+    "sources": "Quellen",
+    "zoomToResults": "Auf Ergebnisse zoomen",
+    "showLayer": "Ebene anzeigen",
+    "hideLayer": "Ebene ausblenden",
+    "stopped": "Gestoppt",
+    "retry": "Noch einmal versuchen",
+    "context": "Kontext für Ihre Frage",
+    "removeContext": "{{name}} aus dem Kontext entfernen",
+    "selection": "{{kind}}, {{area}}",
+    "upload_one": "{{name}}, {{count}} Objekt",
+    "upload_other": "{{name}}, {{count}} Objekte",
+    "sheetHandle": "Ziehen, um die Chatgröße zu ändern",
+    "errors": {
+      "network": "Der Assistent ist nicht erreichbar. Prüfen Sie, ob das Backend läuft, und versuchen Sie es noch einmal.",
+      "http": "Der Assistent hat mit einem Fehler geantwortet ({{status}}). Versuchen Sie es noch einmal.",
+      "stream": "Die Antwort wurde unterbrochen. Versuchen Sie es noch einmal."
+    }
+  }
+}
