@@ -1,0 +1,61 @@
+* { box-sizing: border-box; }
+html, body, #root { height: 100%; margin: 0; }
+body {
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  color: #1a1a1a;
+}
+
+.app { display: flex; height: 100vh; }
+
+.sidebar {
+  width: 420px; min-width: 340px; display: flex; flex-direction: column;
+  border-right: 1px solid #e3e3e3; background: #fafafa;
+}
+.brand { padding: 14px 16px; border-bottom: 1px solid #e3e3e3; }
+.brand h1 { font-size: 17px; margin: 0; }
+.session { font-size: 11px; color: #888; }
+
+.banner {
+  margin: 10px 14px 0; padding: 8px 11px; border-radius: 8px; font-size: 12.5px; line-height: 1.45;
+  background: #fff7e0; color: #7a5200; border: 1px solid #f3d98b;
+}
+.banner.error { background: #fde8e8; color: #b42318; border-color: #f5b5b5; }
+.banner code { font-size: 11.5px; }
+
+.map-wrap { position: relative; flex: 1; }
+.map { position: absolute; inset: 0; }
+.map-fallback {
+  display: flex; align-items: center; justify-content: center; text-align: center;
+  background: #f3f4f6; color: #444; padding: 32px;
+}
+.map-fallback h2 { margin: 0 0 8px; font-size: 18px; }
+.map-fallback p { max-width: 380px; line-height: 1.5; font-size: 14px; }
+.map-fallback code { background: #e5e7eb; padding: 1px 5px; border-radius: 4px; }
+
+.legend {
+  position: absolute; bottom: 16px; left: 16px; background: rgba(255,255,255,0.92);
+  padding: 10px 12px; border-radius: 8px; font-size: 12px; box-shadow: 0 1px 6px rgba(0,0,0,0.2);
+  max-width: 260px;
+}
+.legend-item { color: #444; margin-top: 2px; }
+
+.chat { display: flex; flex-direction: column; flex: 1; min-height: 0; }
+.messages { flex: 1; overflow-y: auto; padding: 14px; display: flex; flex-direction: column; gap: 8px; }
+.hint { color: #888; font-size: 13px; line-height: 1.5; }
+
+.msg { padding: 8px 11px; border-radius: 10px; font-size: 13.5px; line-height: 1.45; white-space: pre-wrap; max-width: 95%; }
+.msg.user { background: #2563eb; color: #fff; align-self: flex-end; }
+.msg.assistant { background: #fff; border: 1px solid #e3e3e3; }
+.msg.thought { background: transparent; color: #666; font-style: italic; padding: 2px 4px; }
+.msg.status { background: #f0f0f0; color: #555; font-size: 12px; font-family: ui-monospace, monospace; }
+.msg.error { background: #fde8e8; color: #b42318; }
+
+.composer { display: flex; gap: 6px; padding: 10px; border-top: 1px solid #e3e3e3; align-items: flex-end; }
+.composer textarea {
+  flex: 1; resize: none; height: 44px; padding: 10px; border: 1px solid #ccc;
+  border-radius: 8px; font-family: inherit; font-size: 13.5px;
+}
+.composer button { border: none; border-radius: 8px; cursor: pointer; font-size: 14px; }
+.composer .send { background: #2563eb; color: #fff; padding: 0 16px; height: 44px; }
+.composer .send:disabled { background: #9db8f0; }
+.composer .attach { background: #e5e7eb; width: 44px; height: 44px; font-size: 20px; }
