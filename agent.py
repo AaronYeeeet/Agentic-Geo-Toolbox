@@ -17,6 +17,7 @@ from dotenv import load_dotenv
 from google import genai
 from google.genai import errors, types
 
+import annahmen as annahmen_mod
 import climate_tools
 import geo_tools
 import impact_tools
@@ -75,6 +76,17 @@ Fragen zu E-Ladesäulen ("Wo könnten Ladesäulen sinnvoll sein?", "Wo fehlen La
    (AC/DC), Zahl der Ladepunkte und Begründung, Hinweise zum Stromnetz (Abstand Trafostation, Zusatzlast).
    Sag klar: grobe Abschätzung, Netzkapazitäten sind nicht öffentlich (nur Lage der Stationen aus OSM), Verkehr ist simuliert,
    Flächen sind nicht auf Verfügbarkeit geprüft. Für echte Planung: Netzbetreiber (e-netz Südhessen) und Verkehrszählungen der Stadt.
+
+Annahmen (gilt für traffic_impact, construction_noise, starkregen, hitze, ladesaeulen):
+- Jedes dieser Werkzeuge rechnet mit Annahmen (Faktoren, Gewichte, Schwellen). ALLE sind über den Parameter "annahmen" änderbar,
+  z.B. {{"kanal_mm": 25}} oder {{"gewichte_ac": {{"netz": 0.4}}}} (bei Einträgen wie gewichte_ac reicht der geänderte Eintrag).
+- Nennt die Nutzerin andere Werte ("rechne mit 0,5 Pkw je Einwohner", "Kanal schafft 20 mm"), übergib sie in "annahmen".
+  Unbekannte Namen lehnt das Werkzeug mit der Liste der erlaubten Namen ab: dann den richtigen Namen nehmen und neu aufrufen.
+- Das Ergebnis enthält immer die Liste "annahmen" (annahme, wert, einheit, geaendert, wichtig).
+  Beende JEDE Antwort mit einer Markdown-Tabelle "Annahmen" mit den Spalten | Annahme | Wert | Einheit | geändert? |.
+  Darin: alle Zeilen mit "wichtig": true und alle mit "geaendert": true (geänderte mit altem Standardwert, z.B. "25 (statt 10)").
+  Darunter ein Satz: alle weiteren Annahmen stehen vollständig unter der Antwort und lassen sich ändern.
+- Dateien aus Werkzeug-Ergebnissen sind kurze Namen (z.B. "ladesaeulen_bedarf.geojson"): genau so an make_map übergeben.
 
 - Antworte in der Sprache der Nutzerin / des Nutzers, kurz und verständlich, und nenne die Zahlen und Annahmen (z.B. Pufferradius), auf denen dein Ergebnis beruht."""
 
@@ -216,6 +228,17 @@ TOOLS = [
 ]
 
 
+# Parameter "annahmen" für die eigenen Werkzeuge, automatisch aus den Standardwerten erzeugt
+ANNAHMEN_DEFAULTS = {
+    "traffic_impact": impact_tools.VERKEHR_DEFAULTS, "construction_noise": impact_tools.LAERM_DEFAULTS,
+    "starkregen": climate_tools.STARKREGEN_DEFAULTS, "hitze": climate_tools.HITZE_DEFAULTS,
+    "ladesaeulen": ladeinfra_tools.DEFAULTS,
+}
+for _t in TOOLS:
+    if _t["name"] in ANNAHMEN_DEFAULTS:
+        _t["schema"]["properties"]["annahmen"] = annahmen_mod.schema(ANNAHMEN_DEFAULTS[_t["name"]])
+
+
 def _resolve_params(params):
     """Relative Dateinamen in QGIS-Parametern: Ausgaben (OUTPUT...) in den Ergebnisordner der Frage,
     Eingaben dort oder in früheren Ergebnisordnern suchen."""
@@ -228,6 +251,14 @@ def _resolve_params(params):
 
 
 def execute_tool(name, args):
+    result = _execute_tool(name, args)
+    # Kurze Dateinamen statt langer Pfade: das Modell schreibt sie fehlerfrei ab, make_map findet sie im Ergebnisordner
+    if isinstance(result, dict) and isinstance(result.get("files"), dict):
+        result["files"] = {k: os.path.basename(v) for k, v in result["files"].items()}
+    return result
+
+
+def _execute_tool(name, args):
     if name == "fetch_osm":
         return geo_tools.fetch_osm(args["tag_filter"], tuple(args["bbox"]), geo_tools.out_path(args["filename"]))
     if name == "list_qgis_algorithms":
@@ -245,21 +276,22 @@ def execute_tool(name, args):
     if name == "geocode":
         return impact_tools.geocode(args["place"])
     if name == "traffic_impact":
-        return impact_tools.traffic_impact(args["lat"], args["lon"], radius_m=args.get("radius_m") or 1500,
-                                           closure_m=args.get("closure_m") or 30)
+        return impact_tools.traffic_impact(args["lat"], args["lon"], radius_m=args.get("radius_m"),
+                                           closure_m=args.get("closure_m"), annahmen=args.get("annahmen"))
     if name == "construction_noise":
-        return impact_tools.construction_noise(args["lat"], args["lon"], activity=args.get("activity") or "normal")
+        return impact_tools.construction_noise(args["lat"], args["lon"], activity=args.get("activity") or "normal",
+                                               annahmen=args.get("annahmen"))
     if name == "starkregen":
         return climate_tools.starkregen(args["lat"], args["lon"], radius_m=args.get("radius_m") or 50,
                                         massnahme=args.get("massnahme") or "versiegeln",
-                                        niederschlag_mm=args.get("niederschlag_mm") or 50)
+                                        niederschlag_mm=args.get("niederschlag_mm"), annahmen=args.get("annahmen"))
     if name == "hitze":
         return climate_tools.hitze(args["lat"], args["lon"], radius_m=args.get("radius_m") or 50,
-                                   massnahme=args.get("massnahme") or "baeume_faellen")
+                                   massnahme=args.get("massnahme") or "baeume_faellen", annahmen=args.get("annahmen"))
     if name == "ladesaeulen":
         return ladeinfra_tools.ladesaeulen(args["lat"], args["lon"], radius_m=args.get("radius_m") or 1500,
                                            e_auto_anteil=args.get("e_auto_anteil") or 0.15,
-                                           anzahl=int(args.get("anzahl") or 10))
+                                           anzahl=int(args.get("anzahl") or 10), annahmen=args.get("annahmen"))
     raise ValueError(f"Unbekanntes Tool: {name}")
 
 

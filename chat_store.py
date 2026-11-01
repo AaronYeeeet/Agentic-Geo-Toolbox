@@ -37,7 +37,9 @@ def save(chat_id, agent, turns):
         state = {"error": str(err)}
     data = {
         "id": chat_id,
-        "title": (turns[0]["prompt"] if turns else "Neuer Chat")[:120],
+        # selbst vergebener Name bleibt erhalten, sonst die erste Frage
+        "title": old["title"] if old.get("title_custom") else (turns[0]["prompt"] if turns else "Neuer Chat")[:120],
+        "title_custom": bool(old.get("title_custom")),
         "created": old.get("created") or time.strftime("%Y-%m-%d %H:%M:%S"),
         "updated": time.strftime("%Y-%m-%d %H:%M:%S"),
         "model": agent.label,
@@ -71,6 +73,18 @@ def list_chats(limit=50):
         chats.append({"id": d["id"], "title": d.get("title", d["id"]), "updated": d.get("updated", ""),
                       "turns": len(d.get("turns", [])), "model": d.get("model", "")})
     return sorted(chats, key=lambda c: c["updated"], reverse=True)[:limit]
+
+
+def rename(chat_id, title):
+    """Chat umbenennen. Leerer Name -> wieder die erste Frage als Titel."""
+    data = load(chat_id)
+    title = (title or "").strip()[:120]
+    data["title_custom"] = bool(title)
+    data["title"] = title or (data["turns"][0]["prompt"][:120] if data.get("turns") else "Neuer Chat")
+    tmp = _path(chat_id) + ".tmp"
+    with open(tmp, "w", encoding="utf-8") as f:
+        json.dump(data, f, ensure_ascii=False, default=str)
+    os.replace(tmp, _path(chat_id))
 
 
 def delete(chat_id):

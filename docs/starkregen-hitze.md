@@ -51,6 +51,8 @@ Alle Werte sind **typische Größenordnungen**, keine kalibrierten Werte. Sie st
 Maßnahmen (Kreisfläche um den geocodierten Punkt, `radius_m`; Gebäude bleiben immer stehen):
 `versiegeln` (pflastern), `asphaltieren`, `entsiegeln` (zu Grünfläche), `baeume_faellen`, `baeume_pflanzen` (ca. 60 % Kronendeckung).
 
+> **Alle Zahlen unten sind Standardannahmen** und vom Agenten über den Parameter `annahmen` änderbar (seit 01.11.2026). Vollständige Liste: [annahmen.md](annahmen.md). Jede Antwort endet mit einer Annahmen-Tabelle.
+
 ### Starkregen: Methode
 
 Vereinfachte Senken- und Fließweganalyse. So ähnlich arbeiten viele kommunale Starkregen-Hinweiskarten als erste Stufe, bevor hydrodynamisch gerechnet wird.

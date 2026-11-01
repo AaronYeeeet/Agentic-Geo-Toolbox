@@ -11,6 +11,7 @@ in der URL (?chat=...): Neuladen oder Neustart öffnet denselben Chat, alte Chat
 import json
 import os
 
+import pandas as pd
 import streamlit as st
 import streamlit.components.v1 as components
 
@@ -58,6 +59,19 @@ def render_answer(events):
                 with open(path, encoding="utf-8") as f:
                     components.html(f.read(), height=520)
                 st.caption(path)
+    # Alle Annahmen der Werkzeuge vollständig (direkt aus dem Ergebnis, nicht vom Modell abgeschrieben)
+    for ev in events:
+        res = ev["result"].get("result") if ev["type"] == "tool_result" else None
+        if isinstance(res, dict) and res.get("annahmen"):
+            rows = res["annahmen"]
+            n_changed = sum(r.get("geaendert", False) for r in rows)
+            with st.expander(f"📋 Alle Annahmen: {ev['name']} ({len(rows)}, davon {n_changed} geändert)"):
+                fmt = lambda v: ", ".join(f"{k}: {x:g}" if isinstance(x, (int, float)) else f"{k}: {x}"
+                                          for k, x in v.items()) if isinstance(v, dict) else str(v)
+                st.dataframe(pd.DataFrame([{
+                    "Annahme": r["annahme"], "Wert": fmt(r["wert"]), "Einheit": r.get("einheit", ""),
+                    "Standard": fmt(r["standard"]) if "standard" in r else "", "geändert": "✏️" if r.get("geaendert") else "",
+                    "Name (für Änderungen)": r.get("schluessel", "")} for r in rows]), hide_index=True, width="stretch")
 
 
 @st.cache_data(ttl=3600, show_spinner="Lade Modellliste …")
@@ -137,21 +151,39 @@ def chat_page():
             _start_chat(None)
             st.rerun()
 
-        chats = chat_store.list_chats(15)
+        chats = chat_store.list_chats(50)
         if chats:
-            st.markdown("**Gespeicherte Chats**")
-            for c in chats:
+            def chat_button(c):
                 current = c["id"] == st.session_state.chat_id
                 title = c["title"] if len(c["title"]) <= 45 else c["title"][:44] + "…"
-                if st.button(title, key=f"chat_{c['id']}", width="stretch", type="primary" if current else "secondary",
+                if st.button(title, key=f"chat_{c['id']}", width="stretch", type="primary" if current else "tertiary",
                              help=f"{c['updated']} · {c['turns']} Fragen · {c['model']}"):
                     if not current:
                         _start_chat(c["id"])
                         st.rerun()
+
+            st.markdown("**💬 Gespeicherte Chats**")
+            for c in chats[:3]:  # die neuesten drei immer sichtbar
+                chat_button(c)
+            if len(chats) > 3:
+                older = chats[3:]
+                # aufgeklappt lassen, wenn der aktuelle Chat darin liegt
+                open_ = any(c["id"] == st.session_state.chat_id for c in older)
+                with st.expander(f"Ältere Chats ({len(older)})", expanded=open_):
+                    for c in older:
+                        chat_button(c)
             if st.session_state.chat_id:
-                with st.popover("🗑️ Diesen Chat löschen"):
+                cur = next((c for c in chats if c["id"] == st.session_state.chat_id), None)
+                col1, col2 = st.columns(2)
+                with col1.popover("✏️ Name", width="stretch", help="Chat umbenennen"):
+                    new = st.text_input("Neuer Name", value=cur["title"] if cur else "", max_chars=120,
+                                        help="Leer lassen = wieder die erste Frage als Name")
+                    if st.button("Speichern", type="primary"):
+                        chat_store.rename(st.session_state.chat_id, new)
+                        st.rerun()
+                with col2.popover("🗑️ Löschen", width="stretch"):
                     st.caption("Löscht nur den gespeicherten Chat. Die Ergebnisordner bleiben erhalten.")
-                    if st.button("Endgültig löschen", type="primary"):
+                    if st.button("Endgültig löschen"):
                         chat_store.delete(st.session_state.chat_id)
                         _start_chat(None)
                         st.rerun()

@@ -26,6 +26,7 @@ import shapely
 from pyproj import Transformer
 from shapely.geometry import LineString, Point, Polygon, mapping
 
+import annahmen as annahmen_mod
 import impact_tools
 import ladeinfra_data
 import local_osm
@@ -33,31 +34,84 @@ from impact_tools import TO_UTM, TO_WGS, _edge_name, _out, _write_geojson
 
 FROM_3035 = Transformer.from_crs("EPSG:3035", "EPSG:25832", always_xy=True)
 
-# ---------- Annahmen (Größenordnungen; in docs/ladesaeulen.md begründet) ----------
-PKW_JE_EINWOHNER = 0.45     # Darmstadt grob (Deutschland ca. 0,58; Uni-Stadt eher weniger)
-KWH_JE_EAUTO_TAG = 6.4      # 13.000 km/Jahr x 0,18 kWh/km / 365
-OEFFENTLICH_EFH = 0.10      # Anteil öffentliches Laden bei Ein-/Zweifamilienhaus (meist eigene Wallbox)
-OEFFENTLICH_MFH = 0.60      # bei Mehrfamilienhaus (oft kein eigener Stellplatz)
-ZIEL_ANTEIL = 0.15          # zusätzlicher Bedarf beim Einkaufen, Arbeiten, Freizeit (Anteil am Gesamtbedarf)
-AUSLASTUNG = {"AC": 0.15, "DC": 0.10}   # Ziel-Auslastung öffentlicher Ladepunkte über 24 h
-EINZUG_M = {"AC": 400, "DC": 2000}       # Einzugsbereich: zu Fuß (AC) bzw. kurzer Umweg (DC)
-AC_KW, DC_KW = 11, 150                   # Leistung je neuem Ladepunkt
-GLEICHZEITIGKEIT = {"AC": 0.5, "DC": 0.8}
-TIEFBAU_EUR_JE_M = 150                   # Kabel + Tiefbau innerorts, grob
-POI_GEWICHT = {
-    ("shop", "supermarket"): 3, ("shop", "mall"): 4, ("shop", "department_store"): 3, ("shop", "doityourself"): 2,
-    ("amenity", "university"): 4, ("amenity", "college"): 2, ("amenity", "hospital"): 3, ("amenity", "townhall"): 1,
-    ("amenity", "cinema"): 1.5, ("amenity", "theatre"): 1, ("amenity", "restaurant"): 0.4, ("amenity", "cafe"): 0.2,
-    ("leisure", "sports_centre"): 1.5, ("leisure", "stadium"): 2, ("leisure", "swimming_pool"): 1.5,
-    ("leisure", "fitness_centre"): 1, ("tourism", "hotel"): 2, ("amenity", "parking", "park_ride"): 3,
+# ---------- Annahmen: alle vom Agenten anpassbar (Parameter "annahmen"), Ergebnis enthält die Tabelle ----------
+def _a(wert, einheit, info):
+    return {"wert": wert, "einheit": einheit, "info": info}
+
+
+DEFAULTS = {
+    # Bedarf Wohnen
+    "pkw_je_einwohner": _a(0.45, "Pkw/Einw.", "Pkw je Einwohner (Deutschland ca. 0,58, Uni-Stadt weniger)"),
+    "kwh_je_e_auto_tag": _a(6.4, "kWh/Tag", "Energiebedarf je E-Auto (13.000 km/Jahr x 0,18 kWh/km)"),
+    "oeffentlich_laden_efh": _a(0.10, "Anteil", "öffentliches Laden bei Ein-/Zweifamilienhaus (eigene Wallbox)"),
+    "oeffentlich_laden_mfh": _a(0.60, "Anteil", "öffentliches Laden bei Mehrfamilienhaus (kein eigener Stellplatz)"),
+    "oeffentlich_laden_max": _a(0.9, "Anteil", "Obergrenze öffentliches Laden je Zelle"),
+    "eigentuemer_effekt": _a(0.4, "-", "Eigentümer laden weniger öffentlich: Faktor (1 + e/2) - e x Eigentümerquote"),
+    "wohnungen_je_gebaeude": _a({"3bis6": 4.5, "7bis12": 9.5, "13plus": 20.0}, "Whg.",
+                                "Wohnungen je Gebäude in den Zensus-Klassen (Mittelwerte)"),
+    # Bedarf Ziele
+    "ziel_laden_anteil": _a(0.15, "Anteil", "Ziel-Laden (Einkaufen, Arbeit, Freizeit) am gesamten E-Auto-Bedarf"),
+    "ziel_gewichte": _a({"supermarkt": 3, "einkaufszentrum": 4, "kaufhaus": 3, "baumarkt": 2, "uni": 4,
+                         "hochschule": 2, "klinik": 3, "rathaus": 1, "kino": 1.5, "theater": 1, "restaurant": 0.4,
+                         "cafe": 0.2, "sporthalle": 1.5, "stadion": 2, "schwimmbad": 1.5, "fitness": 1, "hotel": 2,
+                         "park_and_ride": 3, "buero": 0.3}, "Gewicht", "Gewicht je Zielart für die Verteilung des Ziel-Ladens"),
+    # Bestand
+    "auslastung": _a({"AC": 0.15, "DC": 0.10}, "Anteil", "Ziel-Auslastung öffentlicher Ladepunkte über 24 h"),
+    "schnellladen_ab_kw": _a(50, "kW", "ab dieser Leistung gilt eine Station als Schnelllader"),
+    "osm_dublette_m": _a(50, "m", "OSM-Ladestation wird ignoriert, wenn BNetzA-Station so nah ist"),
+    "osm_kw_je_ladepunkt": _a(11, "kW", "Leistung je Ladepunkt bei OSM-Stationen ohne Angabe"),
+    # Versorgung (2SFCA)
+    "einzugsbereich_m": _a({"AC": 400, "DC": 2000}, "m", "Einzugsbereich: zu Fuß (AC) bzw. kurzer Umweg (DC)"),
+    "dc_anteil_fuer_anwohner": _a(0.5, "Anteil", "wie stark Schnelllader den Wohn-Bedarf decken"),
+    # Verkehr (Simulation)
+    "fahrten_start_wohnen": _a(90, "Anzahl", "Startpunkte der Simulation in Wohnzellen (nach Einwohnern)"),
+    "fahrten_start_rand": _a(40, "Anzahl", "Startpunkte am Gebietsrand (Durchgangsverkehr)"),
+    "ziele_je_start": _a(12, "Anzahl", "Ziele je Startpunkt"),
+    "rand_ab_radius_anteil": _a(0.8, "Anteil", "Knoten gelten als Rand ab diesem Anteil des Radius"),
+    "ziel_gewicht_faktor": _a(3, "-", "Gewicht von Zielen (POIs) bei der Zielwahl"),
+    "wohnen_als_ziel_faktor": _a(0.02, "-", "Gewicht von Wohnzellen (je Einwohner) bei der Zielwahl"),
+    "verkehr_suchradius_m": _a(50, "m", "Straßen in diesem Umkreis zählen für den Verkehrswert eines Standorts"),
+    "verkehr_normierung_perzentil": _a(98, "%", "Perzentil der Fahrten, das als Verkehrswert 1 gilt"),
+    "zufallsstart": _a(42, "-", "Startwert des Zufalls (gleich = gleiches Ergebnis)"),
+    # Stromnetz
+    "netz_ac_gut_bis_m": _a(150, "m", "AC: Netzwert 1 bis zu diesem Abstand zur Trafostation"),
+    "netz_ac_null_ab_m": _a(600, "m", "AC: Netzwert 0 ab diesem Abstand"),
+    "netz_dc_gut_bis_m": _a(100, "m", "DC: Netzwert 1 bis zu diesem Abstand"),
+    "netz_dc_null_ab_m": _a(1000, "m", "DC: Netzwert 0 ab diesem Abstand"),
+    "tiefbau_eur_je_m": _a(150, "€/m", "Kabel und Tiefbau innerorts für den Anschluss"),
+    "gleichzeitigkeit": _a({"AC": 0.5, "DC": 0.8}, "Anteil", "Gleichzeitigkeit der Ladepunkte für die Spitzenlast"),
+    # Kandidaten und Auswahl
+    "neue_ladepunkte_kw": _a({"AC": 11, "DC": 150}, "kW", "Leistung je neuem Ladepunkt"),
+    "stellplaetze_schaetzung": _a({"parkhaus": 200, "flaeche": 25, "strassenrand": 8, "sonst": 20}, "Stellpl.",
+                                  "Stellplätze, wenn OSM keine Kapazität angibt"),
+    "strassenrand_kandidaten": _a(40, "Anzahl", "Zellen mit größter Lücke, die als Straßenrand-Standort geprüft werden"),
+    "strassenrand_stellplaetze": _a(6, "Stellpl.", "Stellplätze eines Straßenrand-Standorts"),
+    "groesse_voll_ab_stellplaetze": _a(50, "Stellpl.", "ab so vielen Stellplätzen gilt der Größenwert 1"),
+    "gewichte_ac": _a({"luecke": 0.55, "netz": 0.2, "groesse": 0.15, "verkehr": 0.1}, "Gewicht", "Bewertung AC-Standort"),
+    "gewichte_dc": _a({"verkehr": 0.4, "netz": 0.3, "luecke": 0.2, "groesse": 0.1}, "Gewicht", "Bewertung DC-Standort"),
+    "dc_max_anteil": _a(0.25, "Anteil", "höchstens dieser Anteil der Vorschläge wird Schnellladen"),
+    "mindestabstand_m": _a(250, "m", "Mindestabstand zwischen zwei Vorschlägen"),
+    "ladepunkte_ac": _a({"min": 2, "max": 10}, "Anzahl", "Ladepunkte je AC-Standort"),
+    "ladepunkte_dc": _a({"min": 2, "max": 4}, "Anzahl", "Ladepunkte je DC-Standort"),
+    "mindest_bewertung": _a(0.05, "-", "Standorte mit geringerer Bewertung werden nicht vorgeschlagen"),
+    # Begründungstexte
+    "grund_luecke_gross": _a(0.5, "-", "Lückenwert ab dem 'große Versorgungslücke' genannt wird"),
+    "grund_luecke_mittel": _a(0.2, "-", "Lückenwert ab dem 'mittlere Versorgungslücke' genannt wird"),
+    "grund_verkehr": _a(0.5, "-", "Verkehrswert ab dem 'viel Verkehr' genannt wird"),
+    "grund_trafo_m": _a(200, "m", "Abstand bis zu dem die nahe Trafostation genannt wird"),
+}
+annahmen_mod.wichtig(DEFAULTS, "pkw_je_einwohner", "kwh_je_e_auto_tag", "oeffentlich_laden_efh",
+                     "oeffentlich_laden_mfh", "ziel_laden_anteil", "auslastung", "einzugsbereich_m", "gewichte_ac",
+                     "gewichte_dc", "neue_ladepunkte_kw")
+POI_TAGS = {
+    "supermarkt": ("shop", "supermarket"), "einkaufszentrum": ("shop", "mall"), "kaufhaus": ("shop", "department_store"),
+    "baumarkt": ("shop", "doityourself"), "uni": ("amenity", "university"), "hochschule": ("amenity", "college"),
+    "klinik": ("amenity", "hospital"), "rathaus": ("amenity", "townhall"), "kino": ("amenity", "cinema"),
+    "theater": ("amenity", "theatre"), "restaurant": ("amenity", "restaurant"), "cafe": ("amenity", "cafe"),
+    "sporthalle": ("leisure", "sports_centre"), "stadion": ("leisure", "stadium"),
+    "schwimmbad": ("leisure", "swimming_pool"), "fitness": ("leisure", "fitness_centre"), "hotel": ("tourism", "hotel"),
 }
 MAIN_ROADS = {"motorway", "trunk", "primary", "secondary", "motorway_link", "trunk_link", "primary_link"}
-ANNAHMEN = {
-    "pkw_je_einwohner": PKW_JE_EINWOHNER, "kwh_je_e_auto_und_tag": KWH_JE_EAUTO_TAG,
-    "oeffentlich_laden_anteil": f"{OEFFENTLICH_EFH:.0%} (Ein-/Zweifamilienhaus) bis {OEFFENTLICH_MFH:.0%} (Mehrfamilienhaus), Eigentümer weniger",
-    "ziel_laden_anteil": ZIEL_ANTEIL, "auslastung_ladepunkte": AUSLASTUNG,
-    "einzugsbereich_m": EINZUG_M, "neue_ladepunkte_kw": {"AC": AC_KW, "DC": DC_KW},
-}
 
 
 def _w(d, r):
@@ -69,24 +123,26 @@ def _dist(ax, ay, bx, by):
     return np.hypot(ax[:, None] - bx[None, :], ay[:, None] - by[None, :])
 
 
-def _poi_weight(tags):
-    for key, w in POI_GEWICHT.items():
-        if len(key) == 3:
-            if tags.get(key[0]) == key[1] and tags.get(key[2]) == "yes":
-                return w
-        elif tags.get(key[0]) == key[1]:
-            return w
+def _poi_weight(tags, gew):
+    if tags.get("amenity") == "parking" and tags.get("park_ride") == "yes":
+        return gew["park_and_ride"]
+    for name, (k, v) in POI_TAGS.items():
+        if tags.get(k) == v:
+            return gew[name]
     if tags.get("office"):
-        return 0.3  # Arbeitsplätze
+        return gew["buero"]  # Arbeitsplätze
     return 0
 
 
-def _station_supply(kw, dc):
-    return kw * 24 * AUSLASTUNG["DC" if dc else "AC"]
+def _station_supply(kw, dc, A):
+    return kw * 24 * A["auslastung"]["DC" if dc else "AC"]
 
 
-def ladesaeulen(lat, lon, radius_m=1500, e_auto_anteil=0.15, anzahl=10, prefix="ladesaeulen"):
-    """Ladesäulen-Standorte im Umkreis radius_m um lat/lon für ein Szenario mit e_auto_anteil E-Autos am Pkw-Bestand."""
+def ladesaeulen(lat, lon, radius_m=1500, e_auto_anteil=0.15, anzahl=10, prefix="ladesaeulen", annahmen=None):
+    """Ladesäulen-Standorte im Umkreis radius_m um lat/lon für ein Szenario mit e_auto_anteil E-Autos am Pkw-Bestand.
+    annahmen: dict mit geänderten Werten aus DEFAULTS (Rest bleibt Standard)."""
+    A, tabelle = annahmen_mod.anwenden(DEFAULTS, annahmen)
+    EINZUG_M, KW, GLZ = A["einzugsbereich_m"], A["neue_ladepunkte_kw"], A["gleichzeitigkeit"]
     warnings = []
     x0, y0 = TO_UTM.transform(lon, lat)
     pad = radius_m + EINZUG_M["DC"]
@@ -107,14 +163,17 @@ def ladesaeulen(lat, lon, radius_m=1500, e_auto_anteil=0.15, anzahl=10, prefix="
     pop = data["einwohner"][near]
     g1, g2 = data["1_Wohnung"][near], data["2_Wohnungen"][near]
     g36, g712, g13 = data["3bis6_Wohnungen"][near], data["7bis12_Wohnungen"][near], data["13undmehr_Wohnungen"][near]
-    whg_mfh = 4.5 * g36 + 9.5 * g712 + 20 * g13
+    wj = A["wohnungen_je_gebaeude"]
+    whg_mfh = wj["3bis6"] * g36 + wj["7bis12"] * g712 + wj["13plus"] * g13
     whg = g1 + 2 * g2 + whg_mfh
     mfh = np.where(whg > 0, whg_mfh / np.maximum(whg, 1), 0.5)
     owner = data["eigentuemerquote"][near]
     owner = np.where(np.isnan(owner), np.nanmedian(owner) if np.isfinite(owner).any() else 0.5, owner)
-    p_pub = np.clip((OEFFENTLICH_EFH + (OEFFENTLICH_MFH - OEFFENTLICH_EFH) * mfh) * (1.2 - 0.4 * owner), 0, 0.9)
-    evs = pop * PKW_JE_EINWOHNER * e_auto_anteil
-    d_res = evs * p_pub * KWH_JE_EAUTO_TAG
+    eff = A["eigentuemer_effekt"]
+    p_pub = np.clip((A["oeffentlich_laden_efh"] + (A["oeffentlich_laden_mfh"] - A["oeffentlich_laden_efh"]) * mfh)
+                    * (1 + eff / 2 - eff * owner), 0, A["oeffentlich_laden_max"])
+    evs = pop * A["pkw_je_einwohner"] * e_auto_anteil
+    d_res = evs * p_pub * A["kwh_je_e_auto_tag"]
 
     # ---------- 1b. Bedarf: Ziele (POIs) + Objekte für Netz/Parken/Bestand aus OSM ----------
     pois, parks, power, osm_chargers = [], [], [], []
@@ -129,14 +188,14 @@ def ladesaeulen(lat, lon, radius_m=1500, e_auto_anteil=0.15, anzahl=10, prefix="
         if tags.get("amenity") == "parking" and tags.get("access") not in ("private", "no", "permit", "delivery") \
                 and tags.get("parking") != "underground":
             parks.append((la, lo, tags))
-        wgt = _poi_weight(tags)
+        wgt = _poi_weight(tags, A["ziel_gewichte"])
         if wgt:
             pois.append((la, lo, wgt, tags))
     px, py = (np.asarray(v) for v in TO_UTM.transform([p[1] for p in pois] or [lon], [p[0] for p in pois] or [lat]))
     pw = np.array([p[2] for p in pois]) if pois else np.zeros(1)
     pin = np.hypot(px - x0, py - y0) <= radius_m + EINZUG_M["AC"]
-    total_ev_kwh = float((evs * KWH_JE_EAUTO_TAG).sum())
-    d_poi = np.where(pin, pw, 0) / max(float(pw[pin].sum()), 1e-9) * total_ev_kwh * ZIEL_ANTEIL
+    total_ev_kwh = float((evs * A["kwh_je_e_auto_tag"]).sum())
+    d_poi = np.where(pin, pw, 0) / max(float(pw[pin].sum()), 1e-9) * total_ev_kwh * A["ziel_laden_anteil"]
     # alle Bedarfspunkte zusammen
     dx, dy = np.concatenate([cx, px]), np.concatenate([cy, py])
     demand = np.concatenate([d_res, d_poi])
@@ -145,22 +204,22 @@ def ladesaeulen(lat, lon, radius_m=1500, e_auto_anteil=0.15, anzahl=10, prefix="
     stations = []
     for st in data["stations"]:
         if s <= st["lat"] <= n and w <= st["lon"] <= e:
-            dc = st["art"].startswith("Schnell") or st["kw"] >= 50
+            dc = st["art"].startswith("Schnell") or st["kw"] >= A["schnellladen_ab_kw"]
             stations.append({**st, "dc": dc, "quelle": "BNetzA"})
     bx, by = (np.asarray(v) for v in TO_UTM.transform([t["lon"] for t in stations] or [0], [t["lat"] for t in stations] or [0]))
     for la, lo, tags in osm_chargers:
         ox_, oy_ = TO_UTM.transform(lo, la)
-        if stations and np.hypot(bx - ox_, by - oy_).min() < 50:
+        if stations and np.hypot(bx - ox_, by - oy_).min() < A["osm_dublette_m"]:
             continue
         try:
             pts = int(tags.get("capacity", "2"))
         except ValueError:
             pts = 2
         stations.append({"betreiber": tags.get("operator", "?"), "adresse": tags.get("name", ""), "ladepunkte": pts,
-                         "kw": 11.0 * pts, "dc": False, "lat": la, "lon": lo, "quelle": "OSM", "art": "Normalladeeinrichtung"})
+                         "kw": A["osm_kw_je_ladepunkt"] * pts, "dc": False, "lat": la, "lon": lo, "quelle": "OSM", "art": "Normalladeeinrichtung"})
     sx, sy = (np.asarray(v) for v in TO_UTM.transform([t["lon"] for t in stations] or [0], [t["lat"] for t in stations] or [0]))
     sdc = np.array([t["dc"] for t in stations], bool) if stations else np.zeros(0, bool)
-    supply = np.array([_station_supply(t["kw"], t["dc"]) for t in stations]) if stations else np.zeros(0)
+    supply = np.array([_station_supply(t["kw"], t["dc"], A) for t in stations]) if stations else np.zeros(0)
 
     def coverage(sx, sy, sdc, supply):
         """2SFCA: Versorgungsgrad je Bedarfspunkt (1 = Bedarf gedeckt)."""
@@ -170,7 +229,7 @@ def ladesaeulen(lat, lon, radius_m=1500, e_auto_anteil=0.15, anzahl=10, prefix="
                 continue
             wgt = _w(_dist(sx[mask], sy[mask], dx, dy), EINZUG_M[typ])        # Stationen x Bedarf
             ratio = supply[mask] / np.maximum(wgt @ demand, 1e-9)              # Angebot je erreichbarem Bedarf
-            acc += wgt.T @ ratio * (0.5 if typ == "DC" else 1.0)               # DC zählt fürs Wohnen nur halb
+            acc += wgt.T @ ratio * (A["dc_anteil_fuer_anwohner"] if typ == "DC" else 1.0)
         return acc
 
     cov = coverage(sx, sy, sdc, supply)
@@ -188,22 +247,23 @@ def ladesaeulen(lat, lon, radius_m=1500, e_auto_anteil=0.15, anzahl=10, prefix="
             out += list(np.argmin(_dist(np.asarray(xs[i:i + 500]), np.asarray(ys[i:i + 500]), nx_, ny_), axis=1))
         return [nodes[j] for j in out]
 
-    rng = random.Random(42)
+    rng = random.Random(int(A["zufallsstart"]))
     res_nodes = nearest_node(cx, cy)
     poi_nodes = nearest_node(px, py) if pois else []
-    rim = [k for k, xx, yy in zip(nodes, nx_, ny_) if math.hypot(xx - x0, yy - y0) > 0.8 * radius_m]
+    rim = [k for k, xx, yy in zip(nodes, nx_, ny_) if math.hypot(xx - x0, yy - y0) > A["rand_ab_radius_anteil"] * radius_m]
     flow = {}
     n_trips = 0
-    origins = rng.choices(range(len(res_nodes)), weights=np.maximum(pop, 0) + 1e-6, k=90)
+    origins = rng.choices(range(len(res_nodes)), weights=np.maximum(pop, 0) + 1e-6, k=int(A["fahrten_start_wohnen"]))
     dest_pool = poi_nodes + res_nodes
-    dest_w = list(pw * 3 if pois else []) + list(np.maximum(pop, 0) * 0.02 + 1e-6)
-    for i, oi in enumerate(origins + [None] * 40):
-        src = res_nodes[oi] if oi is not None else rng.choice(rim)   # 40 Startpunkte am Rand = Durchgangsverkehr
+    dest_w = list(pw * A["ziel_gewicht_faktor"] if pois else []) + list(np.maximum(pop, 0) * A["wohnen_als_ziel_faktor"] + 1e-6)
+    k_ziele = int(A["ziele_je_start"])
+    for i, oi in enumerate(origins + [None] * int(A["fahrten_start_rand"])):
+        src = res_nodes[oi] if oi is not None else rng.choice(rim)   # Startpunkte am Rand = Durchgangsverkehr
         try:
             pred, _ = nx.dijkstra_predecessor_and_distance(G, src, weight="length")
         except nx.NetworkXError:
             continue
-        targets = rng.choices(dest_pool, weights=dest_w, k=12) if oi is not None else rng.sample(rim, min(12, len(rim)))
+        targets = rng.choices(dest_pool, weights=dest_w, k=k_ziele) if oi is not None else rng.sample(rim, min(k_ziele, len(rim)))
         for t in targets:
             if t not in pred or t == src:
                 continue
@@ -224,13 +284,13 @@ def ladesaeulen(lat, lon, radius_m=1500, e_auto_anteil=0.15, anzahl=10, prefix="
         hw = row.get("highway")
         emain.append(any(h in MAIN_ROADS for h in (hw if isinstance(hw, list) else [hw])))
     eflow = np.array(eflow, float)
-    fmax = max(float(np.percentile(eflow[eflow > 0], 98)) if (eflow > 0).any() else 1, 1)
+    fmax = max(float(np.percentile(eflow[eflow > 0], A["verkehr_normierung_perzentil"])) if (eflow > 0).any() else 1, 1)
     etree = shapely.STRtree(egeom)
 
     def street_name(x, y):
         return ename[int(etree.nearest(Point(x, y)))]
 
-    def traffic_at(x, y, r=50):
+    def traffic_at(x, y, r=A["verkehr_suchradius_m"]):
         idx = etree.query(Point(x, y).buffer(r))
         if not len(idx):
             return 0.0, False
@@ -255,12 +315,14 @@ def ladesaeulen(lat, lon, radius_m=1500, e_auto_anteil=0.15, anzahl=10, prefix="
         try:
             cap = int(tags.get("capacity", ""))
         except ValueError:
-            cap = {"multi-storey": 200, "surface": 25, "street_side": 8, "lane": 8}.get(tags.get("parking", "surface"), 20)
+            sp = A["stellplaetze_schaetzung"]
+            cap = int({"multi-storey": sp["parkhaus"], "surface": sp["flaeche"], "street_side": sp["strassenrand"],
+                       "lane": sp["strassenrand"]}.get(tags.get("parking", "surface"), sp["sonst"]))
         cands.append({"x": x, "y": y, "art": "Parkplatz", "name": tags.get("name") or "", "stellplaetze": cap,
                       "kunden": tags.get("access") == "customers"})
-    for i in np.argsort(-deficit * in_area)[:40]:   # Straßenrand (Laternenladen) in Zellen mit großer Lücke
+    for i in np.argsort(-deficit * in_area)[:int(A["strassenrand_kandidaten"])]:   # Straßenrand (Laternenladen)
         if i < len(cx) and deficit[i] > 0:
-            cands.append({"x": float(dx[i]), "y": float(dy[i]), "art": "Straßenrand", "name": "", "stellplaetze": 6,
+            cands.append({"x": float(dx[i]), "y": float(dy[i]), "art": "Straßenrand", "name": "", "stellplaetze": int(A["strassenrand_stellplaetze"]),
                           "kunden": False})
     if not cands:
         raise ValueError("Keine geeigneten Flächen im Gebiet gefunden.")
@@ -273,7 +335,7 @@ def ladesaeulen(lat, lon, radius_m=1500, e_auto_anteil=0.15, anzahl=10, prefix="
     w_dc = _w(_dist(kx, ky, dx, dy), EINZUG_M["DC"])
 
     chosen, picked = [], set()
-    max_dc = max(1, anzahl // 4)   # Innenstadt braucht vor allem Normalladen; Schnellladen nur an wenigen Knoten
+    max_dc = max(1, int(anzahl * A["dc_max_anteil"])) if A["dc_max_anteil"] > 0 else 0
     deficit_now = deficit.copy()
     luecke0 = max(float((w_ac @ deficit).max()), 1e-9)
     luecke0_dc = max(float((w_dc @ deficit).max()), 1e-9)
@@ -281,26 +343,31 @@ def ladesaeulen(lat, lon, radius_m=1500, e_auto_anteil=0.15, anzahl=10, prefix="
         lac, ldc = w_ac @ deficit_now / luecke0, w_dc @ deficit_now / luecke0_dc
         best, best_score = None, -1
         for j, c in enumerate(cands):
-            if j in picked or any(math.hypot(c["x"] - o["x"], c["y"] - o["y"]) < 250 for o in chosen):
+            if j in picked or any(math.hypot(c["x"] - o["x"], c["y"] - o["y"]) < A["mindestabstand_m"] for o in chosen):
                 continue
-            netz_ac = float(np.clip(1 - (c["netz_m"] - 150) / 450, 0, 1))
-            netz_dc = float(np.clip(1 - (c["netz_m"] - 100) / 900, 0, 1))
-            groesse = min(1.0, c["stellplaetze"] / 50)
-            s_ac = 0.55 * lac[j] + 0.2 * netz_ac + 0.15 * groesse + 0.1 * c["verkehr"]
+            netz_ac = float(np.clip(1 - (c["netz_m"] - A["netz_ac_gut_bis_m"])
+                                    / max(A["netz_ac_null_ab_m"] - A["netz_ac_gut_bis_m"], 1), 0, 1))
+            netz_dc = float(np.clip(1 - (c["netz_m"] - A["netz_dc_gut_bis_m"])
+                                    / max(A["netz_dc_null_ab_m"] - A["netz_dc_gut_bis_m"], 1), 0, 1))
+            groesse = min(1.0, c["stellplaetze"] / A["groesse_voll_ab_stellplaetze"])
+            ga, gd = A["gewichte_ac"], A["gewichte_dc"]
+            s_ac = ga["luecke"] * lac[j] + ga["netz"] * netz_ac + ga["groesse"] * groesse + ga["verkehr"] * c["verkehr"]
             dc_ok = c["hauptstrasse"] and c["art"] == "Parkplatz" and sum(o["typ"] == "DC" for o in chosen) < max_dc
-            s_dc = (0.4 * c["verkehr"] + 0.3 * netz_dc + 0.2 * ldc[j] + 0.1 * groesse) if dc_ok else 0
+            s_dc = (gd["verkehr"] * c["verkehr"] + gd["netz"] * netz_dc + gd["luecke"] * ldc[j]
+                    + gd["groesse"] * groesse) if dc_ok else 0
             typ, score = ("DC", s_dc) if s_dc > s_ac else ("AC", s_ac)
             if score > best_score:
                 best, best_score = (j, typ, {"luecke": float(lac[j] if typ == "AC" else ldc[j]),
                                              "netz": netz_ac if typ == "AC" else netz_dc,
                                              "groesse": groesse, "verkehr": c["verkehr"]}), score
-        if best is None or best_score <= 0.05:
+        if best is None or best_score <= A["mindest_bewertung"]:
             break
         j, typ, parts = best
         c = cands[j]
         local = float((w_ac[j] if typ == "AC" else w_dc[j]) @ deficit_now)
-        per_point = _station_supply(AC_KW if typ == "AC" else DC_KW, typ == "DC")
-        points = int(np.clip(round(local / per_point), 2, 10 if typ == "AC" else 4))
+        per_point = _station_supply(KW[typ], typ == "DC", A)
+        lp = A["ladepunkte_ac" if typ == "AC" else "ladepunkte_dc"]
+        points = int(np.clip(round(local / per_point), int(lp["min"]), int(lp["max"])))
         new_supply = points * per_point
         # Simulation: neuer Standort deckt Bedarf in seinem Einzugsbereich -> Lücke dort kleiner
         wcol = (w_ac if typ == "AC" else w_dc)[j]
@@ -309,22 +376,22 @@ def ladesaeulen(lat, lon, radius_m=1500, e_auto_anteil=0.15, anzahl=10, prefix="
         picked.add(j)
         dist_grid = c["netz_m"]
         gruende = []
-        if parts["luecke"] > 0.5:
+        if parts["luecke"] > A["grund_luecke_gross"]:
             gruende.append("große Versorgungslücke in der Umgebung")
-        elif parts["luecke"] > 0.2:
+        elif parts["luecke"] > A["grund_luecke_mittel"]:
             gruende.append("mittlere Versorgungslücke")
-        if c["verkehr"] > 0.5:
+        if c["verkehr"] > A["grund_verkehr"]:
             gruende.append("viel Verkehr (Simulation)" + (" an Hauptstraße" if c["hauptstrasse"] else ""))
-        if dist_grid < 200:
+        if dist_grid < A["grund_trafo_m"]:
             gruende.append(f"Trafostation nur {round(dist_grid)} m entfernt")
         if c["kunden"]:
             gruende.append("Kundenparkplatz (Laden beim Einkaufen)")
-        if c["stellplaetze"] >= 50:
+        if c["stellplaetze"] >= A["groesse_voll_ab_stellplaetze"]:
             gruende.append(f"großer Parkplatz (ca. {c['stellplaetze']} Stellplätze)")
         chosen.append({**c, "typ": typ, "score": best_score, "ladepunkte": points, "parts": parts,
                        "gedeckt_kwh_tag": float(served[in_area].sum()), "gruende": gruende,
-                       "anschluss_kosten_eur": round(dist_grid * TIEFBAU_EUR_JE_M, -3) if dist_grid < 9999 else None,
-                       "spitzenlast_kw": round(points * (AC_KW if typ == "AC" else DC_KW) * GLEICHZEITIGKEIT[typ])})
+                       "anschluss_kosten_eur": round(dist_grid * A["tiefbau_eur_je_m"], -3) if dist_grid < 9999 else None,
+                       "spitzenlast_kw": round(points * KW[typ] * GLZ[typ])})
 
     # ---------- Ergebnisse: Karte ----------
     def cell_poly(x3035, y3035):
@@ -414,13 +481,16 @@ def ladesaeulen(lat, lon, radius_m=1500, e_auto_anteil=0.15, anzahl=10, prefix="
             "bestand_ladepunkte": int(sum(t["ladepunkte"] for t, m in zip(stations, in_st) if m)),
             "bestand_davon_schnellladen": int(sum(t["ladepunkte"] for t, m in zip(stations, in_st) if m and t["dc"])),
             "nicht_gedeckt_kwh_tag": round(deficit_area),
-            "fehlende_ladepunkte_ac_aequivalent": round(deficit_area / _station_supply(AC_KW, False)),
+            "fehlende_ladepunkte_ac_aequivalent": round(deficit_area / _station_supply(KW["AC"], False, A)),
             "vorschlaege_decken_kwh_tag": round(sum(c["gedeckt_kwh_tag"] for c in chosen)),
         },
         "standorte": top_list,
         "trafostationen_mit_zusatzlast": trafo_last,
         "verkehr_simulation": f"{n_trips} simulierte Fahrten (Wohnen -> Ziele und Durchgangsverkehr, kürzester Weg)",
-        "annahmen": ANNAHMEN,
+        "annahmen": [{"annahme": "E-Auto-Anteil am Pkw-Bestand (Szenario)", "schluessel": "e_auto_anteil",
+                      "wert": e_auto_anteil, "einheit": "Anteil", "geaendert": e_auto_anteil != 0.15, "wichtig": True},
+                     {"annahme": "Untersuchungsgebiet (Radius)", "schluessel": "radius_m", "wert": radius_m,
+                      "einheit": "m", "geaendert": radius_m != 1500, "wichtig": True}] + tabelle,
         "datenquellen": [ladeinfra_data.STAND["zensus"] + ": Einwohner, Gebäude nach Wohnungen, Eigentümerquote (100 m)",
                          ladeinfra_data.STAND["bnetza"] + f" ({sum(1 for t in stations if t['quelle'] == 'BNetzA')} Einrichtungen im Umfeld), ergänzt um OSM",
                          f"OSM lokal (Stand {local_osm.stand()}): Parkplätze, Ziele, Straßennetz, {len(power)} Trafostationen/Umspannwerke"],

@@ -1,0 +1,4 @@
+# Oberfläche: Darkmode, ruhiges Blau statt Streamlit-Rot als Akzentfarbe (aktueller Chat, Schalter, Auswahl)
+[theme]
+base = "dark"
+primaryColor = "#3b82c4"

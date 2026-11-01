@@ -43,6 +43,8 @@ Neue Werkzeuge für den Agenten:
 - `traffic_impact(lat, lon, ...)`: Verkehrsverlagerung, Umwege, Verkehrslärm-Änderung
 - `construction_noise(lat, lon, lautstaerke)`: Baulärm-Ringe, betroffene Gebäude und Einrichtungen
 
+> **Alle Zahlen unten sind Standardannahmen** und vom Agenten über den Parameter `annahmen` änderbar (seit 01.11.2026). Vollständige Liste: [annahmen.md](annahmen.md). Jede Antwort endet mit einer Annahmen-Tabelle.
+
 #### Methode Verkehr
 
 - Straßennetz für Autos im Umkreis (Standard 1,5 km) aus OSM.

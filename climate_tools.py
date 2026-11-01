@@ -22,6 +22,7 @@ import shapely
 from PIL import Image
 from shapely.geometry import LineString, Point, Polygon, mapping
 
+import annahmen as annahmen_mod
 import geo_tools
 import local_osm
 from impact_tools import KIND_DE, TO_UTM, TO_WGS, _out, _write_geojson
@@ -53,36 +54,86 @@ COVER = {
     8: ("Asphalt (Straße)", 1.0, 0.90, 52),
     9: ("Gebäude", 1.0, 0.90, 45),
 }
-SEAL = np.array([COVER[k][1] for k in range(10)])
-RUNOFF = np.array([COVER[k][2] for k in range(10)])
-TSURF = np.array([COVER[k][3] for k in range(10)], dtype=float)
-T_SHADE = 29.0                 # Boden im Baumschatten
+KLASSEN = ["unbekannt", "wohngebiet", "gewerbe", "gruenflaeche", "acker_wiese", "wald", "wasser", "pflaster",
+           "asphalt", "gebaeude"]   # Schlüssel der Klassen 0..9 für die Annahmen
+
+
+def _klassen_arr(d):
+    return np.array([float(d[k]) for k in KLASSEN])
 PRIO = {0: 0, 1: 0, 2: 0, 4: 1, 3: 2, 5: 3, 6: 4, 7: 5, 8: 6, 9: 8}  # spätere überschreiben frühere
 PRIO_LINE = 7                  # Straßen über Flächen, aber unter Gebäuden
 
 UNSEALED = {"grass", "gravel", "fine_gravel", "dirt", "ground", "earth", "sand", "compacted", "unpaved",
             "woodchips", "mud", "pebblestone", "grass_paver", "rock", "wood"}
 PAVERS = {"paving_stones", "sett", "cobblestone", "unhewn_cobblestone", "concrete:plates", "bricks"}
-ROAD_WIDTH = {"motorway": 25, "trunk": 16, "primary": 12, "secondary": 10, "tertiary": 8, "unclassified": 6,
-              "residential": 6, "living_street": 5, "service": 4, "pedestrian": 6, "busway": 7, "track": 3,
-              "footway": 2, "cycleway": 2, "path": 1.5, "steps": 2, "bridleway": 2}
 GREEN_LANDUSE = {"grass", "village_green", "recreation_ground", "cemetery", "flowerbed", "greenfield"}
 FARM_LANDUSE = {"farmland", "meadow", "orchard", "vineyard", "allotments", "plant_nursery"}
 GRAY_LANDUSE = {"commercial", "retail", "industrial", "railway", "construction", "garages", "brownfield"}
 
-# Hitze: grobe Literaturwerte (Sommernachmittag, Lufttemperatur), Spanne niedrig/mittel/hoch.
-# Änderung um 100 %-Punkte Versiegelung bzw. Baumkronen in der Nachbarschaft (Gauß, Sigma 50 m)
-AIR_IMPERV_K = (1.0, 2.0, 3.0)
-AIR_CANOPY_K = (2.0, 3.0, 5.0)
-NEIGHBOUR_SIGMA_M = 50
+
+
+# ---------- Annahmen: alle vom Agenten anpassbar (Parameter "annahmen"), Ergebnis enthält die Tabelle ----------
+def _a(wert, einheit, info):
+    return {"wert": wert, "einheit": einheit, "info": info}
+
+
+GEMEINSAM = {
+    "versiegelung": _a({k: COVER[i][1] for i, k in enumerate(KLASSEN)}, "Anteil",
+                       "Versiegelungsgrad je Bodenart (Wohngebiet/Gewerbe = Rest ohne Gebäude und Straßen)"),
+    "strassenbreite_m": _a({"motorway": 25, "trunk": 16, "primary": 12, "secondary": 10, "tertiary": 8,
+                            "unclassified": 6, "residential": 6, "living_street": 5, "service": 4, "pedestrian": 6,
+                            "busway": 7, "track": 3, "footway": 2, "cycleway": 2, "path": 1.5, "steps": 2,
+                            "bridleway": 2}, "m", "Breite je OSM-Straßenklasse"),
+}
+STARKREGEN_DEFAULTS = {
+    "niederschlag_mm": _a(50, "mm in 1 h", "Regenmenge (50 mm ca. 100-jährlicher Starkregen in Südhessen)"),
+    "kanal_mm": _a(10, "mm", "was die Kanalisation von versiegelten Flächen aufnimmt"),
+    "abflussbeiwert": _a({k: COVER[i][2] for i, k in enumerate(KLASSEN)}, "Anteil",
+                         "Anteil des Regens, der oberirdisch abfließt, je Bodenart"),
+    **GEMEINSAM,
+    "gebiet_halbe_kante_m": _a(1000, "m", "Untersuchungsgebiet: halbe Kantenlänge des Quadrats"),
+    "rechenraster_m": _a(DGM1_CELL, "m", "Rasterweite mit DGM1 (ohne DGM1 immer 10 m)"),
+    "gebaeude_als_hindernis": _a(True, "ja/nein", "Gebäude ins Gelände einbrennen (nur mit DGM1)"),
+    "gebaeude_einbrennen_m": _a(BUILDING_BURN_M, "m", "so hoch werden Gebäude ins Gelände eingebrannt"),
+    "senke_min_tiefe_m": _a(0.02, "m", "Mulden flacher als das gelten nicht als Senke"),
+    "pfuetze_bis_m2": _a(MIN_POND_M2, "m²", "kleinere Wasserflächen gelten als Pfütze (Gullys) und werden nicht gezählt"),
+    "nass_ab_m": _a(0.1, "m", "Wassertiefe, ab der Fläche/Gebäude/Einrichtung als betroffen gilt"),
+    "mehr_wasser_ab_m": _a(0.02, "m", "Zunahme der Wassertiefe, ab der 'mehr Wasser' angezeigt wird"),
+    "einrichtung_umkreis_m": _a(10, "m", "Umkreis um sensible Einrichtungen für die Wassertiefe"),
+    "fliessweg_ab_ha": _a({"klein": 3, "mittel": 10, "gross": 50}, "ha", "Einzugsgebiet ab dem Fließwege gezeigt werden"),
+}
+HITZE_DEFAULTS = {
+    "luft_versiegelung_k": _a({"niedrig": 1.0, "mittel": 2.0, "hoch": 3.0}, "K je 100 %",
+                              "Wirkung von Versiegelung in der Nachbarschaft auf die Lufttemperatur"),
+    "luft_baumkronen_k": _a({"niedrig": 2.0, "mittel": 3.0, "hoch": 5.0}, "K je 100 %",
+                            "Kühlwirkung von Baumkronen in der Nachbarschaft"),
+    "nachbarschaft_sigma_m": _a(50, "m", "Reichweite der Wirkung (Gauß, Sigma)"),
+    "oberflaeche_c": _a({k: COVER[i][3] for i, k in enumerate(KLASSEN)}, "°C",
+                        "Oberflächentemperatur je Bodenart an einem heißen Sommernachmittag"),
+    "baumschatten_c": _a(29.0, "°C", "Oberflächentemperatur im Baumschatten"),
+    **GEMEINSAM,
+    "baumkrone_m": _a(8, "m", "Kronendurchmesser, wenn OSM keinen angibt"),
+    "baumkrone_radius_grenzen_m": _a({"min": 2, "max": 12}, "m", "Kronenradius wird auf diesen Bereich begrenzt"),
+    "baumreihe_breite_m": _a(8, "m", "Kronenbreite einer Baumreihe"),
+    "pflanzen_kronenanteil": _a(0.6, "Anteil", "Kronendeckung nach 'Bäume pflanzen'"),
+    "gebiet_halbe_kante_m": _a(400, "m", "Untersuchungsgebiet: halbe Kantenlänge des Quadrats"),
+    "zone_ab_k": _a(0.1, "K", "Temperaturänderung, ab der eine Fläche/ein Gebäude zur Zone zählt"),
+    "umgebung_radius_m": _a(100, "m", "Umkreis für Versiegelung/Kronen 'vorher/nachher'"),
+    "einrichtung_ab_k": _a(0.05, "K", "sensible Einrichtungen werden ab dieser Änderung genannt"),
+}
 SENSITIVE = '"amenity"~"^(school|kindergarten|childcare|hospital|clinic|nursing_home|social_facility)$"'
+
+annahmen_mod.wichtig(STARKREGEN_DEFAULTS, "niederschlag_mm", "kanal_mm", "abflussbeiwert",
+                     "gebaeude_als_hindernis", "pfuetze_bis_m2", "nass_ab_m")
+annahmen_mod.wichtig(HITZE_DEFAULTS, "luft_versiegelung_k", "luft_baumkronen_k", "nachbarschaft_sigma_m",
+                     "oberflaeche_c", "baumkrone_m")
 
 MASSNAHMEN = {
     "versiegeln": "Fläche wird gepflastert (Bäume entfallen)",
     "asphaltieren": "Fläche wird asphaltiert (Bäume entfallen)",
     "baeume_faellen": "Bäume werden gefällt, Boden bleibt",
     "entsiegeln": "versiegelte Fläche wird zu Grünfläche",
-    "baeume_pflanzen": "Bäume werden gepflanzt (ca. 60 % Kronendeckung)",
+    "baeume_pflanzen": "Bäume werden gepflanzt (Kronendeckung siehe Annahme pflanzen_kronenanteil)",
 }
 
 
@@ -252,11 +303,11 @@ def _poly_class(t):
     return None
 
 
-def _line_class(t):
+def _line_class(t, widths):
     hw = t.get("highway")
     if not hw or t.get("tunnel") in ("yes", "building_passage", "culvert"):
         return None, 0
-    width = ROAD_WIDTH.get(hw.replace("_link", ""))
+    width = widths.get(hw.replace("_link", ""))
     surf = t.get("surface")
     if width is None or surf in UNSEALED or (hw in ("path", "track", "bridleway") and not surf):
         return None, 0
@@ -265,7 +316,7 @@ def _line_class(t):
     return 8, width
 
 
-def _land_cover(g, polys, lines, trees):
+def _land_cover(g, polys, lines, trees, A):
     """Bodenbedeckung (Klasse je Zelle), Baumkronen-Anteil, Gebäude und Straßennamen (für Ortsangaben)."""
     n = g["n"]
     cls = np.zeros((n, n), np.int8)
@@ -287,9 +338,9 @@ def _land_cover(g, polys, lines, trees):
     for tags, pts in lines:
         line = LineString(_utm_coords(pts))
         if tags.get("natural") == "tree_row":
-            canopy_geoms.append(line.buffer(4))
+            canopy_geoms.append(line.buffer(A.get("baumreihe_breite_m", 8) / 2))
             continue
-        k, width = _line_class(tags)
+        k, width = _line_class(tags, A["strassenbreite_m"])
         if k:
             items.append((PRIO_LINE, k, line.buffer(width / 2, cap_style="flat")))
         if tags.get("name") and tags.get("highway"):
@@ -298,17 +349,18 @@ def _land_cover(g, polys, lines, trees):
         _burn(cls, g, geom, k)
     for lon, lat, tags in trees:
         try:
-            r = float(str(tags.get("diameter_crown", "8")).split()[0]) / 2
+            r = float(str(tags.get("diameter_crown", A["baumkrone_m"])).split()[0]) / 2
         except ValueError:
-            r = 4
+            r = A["baumkrone_m"] / 2
+        lim = A["baumkrone_radius_grenzen_m"]
         x, y = TO_UTM.transform(lon, lat)
-        canopy_geoms.append(Point(x, y).buffer(min(max(r, 2), 12), 12))
+        canopy_geoms.append(Point(x, y).buffer(min(max(r, lim["min"]), lim["max"]), 12))
     for geom in canopy_geoms:
         _burn(canopy, g, geom, 1.0)
     return {"cls": cls, "canopy": canopy, "buildings": buildings, "roads": roads}
 
 
-def _apply(cls, canopy, mask, massnahme):
+def _apply(cls, canopy, mask, massnahme, pflanzen_anteil=0.6):
     """Maßnahme in der Fläche mask umsetzen -> (Klassen, Kronen) nachher."""
     if massnahme not in MASSNAHMEN:
         raise ValueError(f"Unbekannte Maßnahme '{massnahme}'. Erlaubt: {', '.join(MASSNAHMEN)}")
@@ -323,7 +375,7 @@ def _apply(cls, canopy, mask, massnahme):
     elif massnahme == "entsiegeln":
         cls2[free & np.isin(cls, (0, 1, 2, 7, 8))] = 3
     elif massnahme == "baeume_pflanzen":
-        can2[free] = np.maximum(can2[free], 0.6)
+        can2[free] = np.maximum(can2[free], pflanzen_anteil)
     return cls2, can2
 
 
@@ -523,7 +575,7 @@ def _water_depth(dem, filled, label, stored, cell_area):
     return depth
 
 
-def _drop_puddles(depth, cell_area, min_depth=0.1):
+def _drop_puddles(depth, cell_area, min_depth=0.1, min_pond=MIN_POND_M2):
     """Wasserflächen (ab min_depth) kleiner als MIN_POND_M2 entfernen: Pfützen an Hauswänden oder in Mulden,
     die in der Realität über Gullys abfließen. Ändert nur die Darstellung/Zählung, nicht die Wasserbilanz."""
     lab, k = _label(depth >= min_depth)
@@ -531,7 +583,7 @@ def _drop_puddles(depth, cell_area, min_depth=0.1):
         return depth
     sizes = np.bincount(lab[lab >= 0], minlength=k) * cell_area
     small = np.zeros(depth.shape, bool)
-    small[lab >= 0] = sizes[lab[lab >= 0]] < MIN_POND_M2
+    small[lab >= 0] = sizes[lab[lab >= 0]] < min_pond
     out = depth.copy()
     out[small] = 0
     return out
@@ -549,20 +601,28 @@ DEPTH_CLASSES = [(0.1, 0.3, "#9ecae1", "10-30 cm"), (0.3, 0.5, "#4292c6", "30-50
                  (0.5, 99, "#08306b", "über 50 cm")]
 
 
-def starkregen(lat, lon, radius_m=50, massnahme="versiegeln", niederschlag_mm=50, kanal_mm=10,
-               gebiet_m=1000, prefix="starkregen", gebaeude_hindernis=True):
+def starkregen(lat, lon, radius_m=50, massnahme="versiegeln", niederschlag_mm=None, kanal_mm=None,
+               gebiet_m=None, prefix="starkregen", gebaeude_hindernis=None, annahmen=None):
     """Starkregen vorher/nachher: Fläche (Kreis radius_m um lat/lon) wird versiegelt/entsiegelt.
     niederschlag_mm: Regen in 1 h (50 mm ~ seltener Starkregen, ca. 100-jährlich in Südhessen),
     kanal_mm: was die Kanalisation von versiegelten Flächen aufnimmt, gebiet_m: halbe Kantenlänge,
     gebaeude_hindernis: Gebäude ins Gelände einbrennen (nur mit feinem DGM1)."""
+    over = dict(annahmen or {})
+    for key, val in (("niederschlag_mm", niederschlag_mm), ("kanal_mm", kanal_mm),
+                     ("gebiet_halbe_kante_m", gebiet_m), ("gebaeude_als_hindernis", gebaeude_hindernis)):
+        if val is not None:
+            over.setdefault(key, val)
+    A, tabelle = annahmen_mod.anwenden(STARKREGEN_DEFAULTS, over)
+    niederschlag_mm, kanal_mm, nass = A["niederschlag_mm"], A["kanal_mm"], A["nass_ab_m"]
+    RUNOFF, SEAL = _klassen_arr(A["abflussbeiwert"]), _klassen_arr(A["versiegelung"])
     warnings = []
-    gebiet_m = int(round(gebiet_m / 20) * 20)
-    # Gelände: DGM1 Hessen auf 4-m-Raster; sonst (außerhalb Hessens / Dienst weg) grobe Terrain-Kacheln auf 10 m
-    g = _grid(lat, lon, gebiet_m, DGM1_CELL)
+    gebiet_m = int(round(A["gebiet_halbe_kante_m"] / 20) * 20)
+    # Gelände: DGM1 Hessen auf feinem Raster; sonst (außerhalb Hessens / Dienst weg) grobe Terrain-Kacheln auf 10 m
+    g = _grid(lat, lon, gebiet_m, A["rechenraster_m"])
     try:
         dem = _dgm1(g)
         dem_quelle = (f"Geländemodell: DGM1 Hessen (HVBG, Laserscan, Datenlizenz Deutschland Zero 2.0), "
-                      f"Rechenraster {DGM1_CELL} m")
+                      f"Rechenraster {A['rechenraster_m']} m")
     except Exception as err:
         warnings.append(f"DGM1 Hessen nicht verfügbar ({str(err)[:100]}); grobes Höhenmodell (25-30 m) genutzt.")
         g = _grid(lat, lon, gebiet_m, 10)
@@ -571,7 +631,7 @@ def starkregen(lat, lon, radius_m=50, massnahme="versiegeln", niederschlag_mm=50
     cell, n = g["cell"], g["n"]
     gf = _grid(lat, lon, gebiet_m, cell / 2)   # Bodenbedeckung doppelt so fein, dann gemittelt
     polys, lines, quelle = _osm_shapes(gf["bbox"], warnings)
-    lc = _land_cover(gf, polys, lines, [])
+    lc = _land_cover(gf, polys, lines, [], A)
     mask_f = _circle(gf, radius_m)
     cls_b = lc["cls"]
     cls_a, _ = _apply(cls_b, lc["canopy"], mask_f, massnahme)
@@ -581,12 +641,12 @@ def starkregen(lat, lon, radius_m=50, massnahme="versiegeln", niederschlag_mm=50
         return a.reshape(n, 2, n, 2).mean(axis=(1, 3))
 
     area = cell ** 2
-    burned = gebaeude_hindernis and cell <= 5
+    burned = A["gebaeude_als_hindernis"] and cell <= 5
     if burned:  # Zellen, die überwiegend Gebäude sind, werden zum Hindernis
-        dem = dem + BUILDING_BURN_M * (agg((cls_b == 9).astype(float)) >= 0.5)
+        dem = dem + A["gebaeude_einbrennen_m"] * (agg((cls_b == 9).astype(float)) >= 0.5)
     filled, parent, order = _priority_flood(dem)
     cap = filled - dem
-    label, ncomp = _label(cap > 0.02)
+    label, ncomp = _label(cap > A["senke_min_tiefe_m"])
     capacity = np.array([cap[label == k].sum() * area for k in range(ncomp)]) if ncomp else np.zeros(0)
 
     results = {}
@@ -594,7 +654,7 @@ def starkregen(lat, lon, radius_m=50, massnahme="versiegeln", niederschlag_mm=50
         runoff_mm = np.clip(agg(RUNOFF[cls]) * niederschlag_mm - kanal_mm * agg(SEAL[cls]), 0, None)
         vol = runoff_mm / 1000 * area
         flow, stored, out = _route(vol, parent, order, label, capacity)
-        depth = _drop_puddles(_water_depth(dem, filled, label, stored, area), area)
+        depth = _drop_puddles(_water_depth(dem, filled, label, stored, area), area, nass, A["pfuetze_bis_m2"])
         results[key] = {"vol": vol, "stored": stored, "out": out, "depth": depth}
     b, a = results["vorher"], results["nachher"]
     name_of = _namer(lc["roads"], g)
@@ -609,7 +669,8 @@ def starkregen(lat, lon, radius_m=50, massnahme="versiegeln", niederschlag_mm=50
         return LineString([(xc[i % nx], yc[i // nx]), (xc[p % nx], yc[p // nx])])
 
     flow_feats = []
-    for lo_ha, hi_ha, width in ((3, 10, 2), (10, 50, 3), (50, 1e9, 5)):
+    fw = A["fliessweg_ab_ha"]
+    for lo_ha, hi_ha, width in ((fw["klein"], fw["mittel"], 2), (fw["mittel"], fw["gross"], 3), (fw["gross"], 1e9, 5)):
         sel = np.nonzero(((contrib >= lo_ha * 1e4) & (contrib < hi_ha * 1e4)).ravel())[0]
         segs = [seg(i) for i in sel if parent[i] >= 0]
         if segs:
@@ -649,7 +710,7 @@ def starkregen(lat, lon, radius_m=50, massnahme="versiegeln", niederschlag_mm=50
             water_feats.append(_feature(geom, {"name": f"Wasser {text}", "_style": {
                 "color": color, "fillColor": color, "fillOpacity": 0.6, "weight": 0},
                 "_popup": f"<b>Wassertiefe {text}</b><br>Senke, in der sich Regenwasser sammelt (nach der Maßnahme)"}))
-    more = _cells_geom(a["depth"] - b["depth"] >= 0.02, g)
+    more = _cells_geom(a["depth"] - b["depth"] >= A["mehr_wasser_ab_m"], g)
     more_feats = [_feature(more, {"name": "mehr Wasser", "_style": {
         "color": "#e31a1c", "fillColor": "#e31a1c", "fillOpacity": 0.25, "weight": 2},
         "_popup": "<b>Hier steht durch die Maßnahme mindestens 2 cm mehr Wasser</b>"})] if more is not None else []
@@ -667,8 +728,8 @@ def starkregen(lat, lon, radius_m=50, massnahme="versiegeln", niederschlag_mm=50
             "ort": name_of(x, y), "entfernung_m": round(math.hypot(x - g["x0"], y - g["y0"])),
             "zusaetzliches_wasser_m3": round(extra),
             "max_tiefe_cm": {"vorher": round(100 * b["depth"][cells].max()), "nachher": round(100 * a["depth"][cells].max())},
-            "flaeche_ueber_10cm_m2": {"vorher": int((b["depth"][cells] >= 0.1).sum() * area),
-                                      "nachher": int((a["depth"][cells] >= 0.1).sum() * area)},
+            "flaeche_ueber_10cm_m2": {"vorher": int((b["depth"][cells] >= nass).sum() * area),
+                                      "nachher": int((a["depth"][cells] >= nass).sum() * area)},
             "laeuft_ueber": bool(a["stored"][k] >= capacity[k] - 0.5)})
 
     # betroffene Gebäude (Wasser >= 10 cm direkt am Gebäude)
@@ -678,7 +739,7 @@ def starkregen(lat, lon, radius_m=50, massnahme="versiegeln", niederschlag_mm=50
             minx, miny, maxx, maxy = geom.bounds
             c0, c1 = max(0, int((minx - g["left"]) // cell) - 1), min(nx, int((maxx - g["left"]) // cell) + 2)
             r0, r1 = max(0, int((g["top"] - maxy) // cell) - 1), min(nx, int((g["top"] - miny) // cell) + 2)
-            if c0 < c1 and r0 < r1 and depth[r0:r1, c0:c1].max() >= 0.1:
+            if c0 < c1 and r0 < r1 and depth[r0:r1, c0:c1].max() >= nass:
                 hits.append((geom, name, kind, depth[r0:r1, c0:c1].max()))
         return hits
     wet_b, wet_a = wet(b["depth"]), wet(a["depth"])
@@ -698,9 +759,9 @@ def starkregen(lat, lon, radius_m=50, massnahme="versiegeln", niederschlag_mm=50
         x, y = TO_UTM.transform(lon_, lat_)
         c, r = int((x - g["left"]) // cell), int((g["top"] - y) // cell)
         if 0 <= r < nx and 0 <= c < nx:
-            w = max(1, round(10 / cell))  # ca. 10 m um die Einrichtung
+            w = max(1, round(A["einrichtung_umkreis_m"] / cell))
             win = (slice(max(r - w, 0), r + w + 1), slice(max(c - w, 0), c + w + 1))
-            if a["depth"][win].max() >= 0.1:
+            if a["depth"][win].max() >= nass:
                 kind = tags.get("amenity", "")
                 einrichtungen.append({"name": tags.get("name") or KIND_DE.get(kind, kind), "art": KIND_DE.get(kind, kind),
                                       "wasser_cm": {"vorher": round(100 * b["depth"][win].max()),
@@ -738,6 +799,8 @@ def starkregen(lat, lon, radius_m=50, massnahme="versiegeln", niederschlag_mm=50
         "sensible_einrichtungen_im_wasser": einrichtungen[:10],
         "gelaende_hoehe_m": {"min": round(float(dem.min()), 1), "max": round(float(dem.max()), 1),
                              "an_der_flaeche": round(float(dem[n // 2, n // 2]), 1)},
+        "annahmen": [{"annahme": "Größe der Maßnahme (Kreisradius)", "schluessel": "radius_m", "wert": radius_m,
+                      "einheit": "m", "geaendert": radius_m != 50, "wichtig": True}] + tabelle,
         "datenquellen": [quelle, dem_quelle] + (["Gebäude als Hindernisse ins Gelände eingebrannt"] if burned else []),
         "warnungen": warnings,
         "hinweis": "Grobe Senken- und Fließweganalyse (GIS-Methode wie in Starkregen-Hinweiskarten), keine "
@@ -763,27 +826,34 @@ DT_CLASSES = [(1.0, 99, "#99000d", "über +1 K"), (0.5, 1.0, "#ef3b2c", "+0,5 bi
               (-1.0, -0.5, "#4292c6", "-0,5 bis -1 K"), (-99, -1.0, "#08519c", "unter -1 K")]
 
 
-def hitze(lat, lon, radius_m=50, massnahme="baeume_faellen", gebiet_m=400, prefix="hitze"):
-    """Temperaturwirkung einer Maßnahme (Kreis radius_m um lat/lon) an einem heißen Sommernachmittag."""
+def hitze(lat, lon, radius_m=50, massnahme="baeume_faellen", gebiet_m=None, prefix="hitze", annahmen=None):
+    """Temperaturwirkung einer Maßnahme (Kreis radius_m um lat/lon) an einem heißen Sommernachmittag.
+    annahmen: dict mit geänderten Werten aus HITZE_DEFAULTS (Rest bleibt Standard)."""
+    over = dict(annahmen or {})
+    if gebiet_m is not None:
+        over.setdefault("gebiet_halbe_kante_m", gebiet_m)
+    A, tabelle = annahmen_mod.anwenden(HITZE_DEFAULTS, over)
+    SEAL, TSURF = _klassen_arr(A["versiegelung"]), _klassen_arr(A["oberflaeche_c"])
     warnings = []
     cell = 5
-    g = _grid(lat, lon, gebiet_m, cell)
+    g = _grid(lat, lon, A["gebiet_halbe_kante_m"], cell)
     polys, lines, quelle = _osm_shapes(g["bbox"], warnings)
     trees = _points('"natural"="tree"', g["bbox"], warnings)
-    lc = _land_cover(g, polys, lines, trees)
+    lc = _land_cover(g, polys, lines, trees, A)
     mask = _circle(g, radius_m)
     cls_b, can_b = lc["cls"], lc["canopy"]
-    cls_a, can_a = _apply(cls_b, can_b, mask, massnahme)
+    cls_a, can_a = _apply(cls_b, can_b, mask, massnahme, A["pflanzen_kronenanteil"])
 
-    s_imp = _smooth(SEAL[cls_a] - SEAL[cls_b], NEIGHBOUR_SIGMA_M / cell)
-    s_can = _smooth(can_a - can_b, NEIGHBOUR_SIGMA_M / cell)
-    dts = [ki * s_imp - kc * s_can for ki, kc in zip(AIR_IMPERV_K, AIR_CANOPY_K)]
+    s_imp = _smooth(SEAL[cls_a] - SEAL[cls_b], A["nachbarschaft_sigma_m"] / cell)
+    s_can = _smooth(can_a - can_b, A["nachbarschaft_sigma_m"] / cell)
+    stufen = ("niedrig", "mittel", "hoch")
+    dts = [A["luft_versiegelung_k"][k] * s_imp - A["luft_baumkronen_k"][k] * s_can for k in stufen]
     dt = dts[1]
 
     def surf(cls, can):
-        return can * T_SHADE + (1 - can) * TSURF[cls]
+        return can * A["baumschatten_c"] + (1 - can) * TSURF[cls]
 
-    near = _circle(g, max(radius_m, 100))
+    near = _circle(g, max(radius_m, A["umgebung_radius_m"]))
     area = cell ** 2
     x0, y0 = g["x0"], g["y0"]
     gone = [(lo, la) for lo, la, _ in trees
@@ -817,7 +887,7 @@ def hitze(lat, lon, radius_m=50, massnahme="baeume_faellen", gebiet_m=400, prefi
     for lo, la, tags in _points(SENSITIVE, g["bbox"], warnings):
         x, y = TO_UTM.transform(lo, la)
         d = dt_at(x, y)
-        if abs(d) < 0.05:
+        if abs(d) < A["einrichtung_ab_k"]:
             continue
         kind = tags.get("amenity", "")
         name = tags.get("name") or KIND_DE.get(kind, kind)
@@ -850,13 +920,15 @@ def hitze(lat, lon, radius_m=50, massnahme="baeume_faellen", gebiet_m=400, prefi
         "oberflaeche_sommernachmittag_c": {"vorher": round(float(surf(cls_b, can_b)[mask].mean()), 1),
                                            "nachher": round(float(surf(cls_a, can_a)[mask].mean()), 1)},
         "lufttemperatur_aenderung_k": {"maximal": round(peak[1], 2), "spanne": [round(lo_, 2), round(hi_, 2)],
-                                       "flaeche_ab_0_1K_ha": round(float((np.abs(dt) >= 0.1).sum() * area) / 1e4, 2),
-                                       "reichweite_0_1K_m": _reach(dt, g)},
+                                       "flaeche_ab_0_1K_ha": round(float((np.abs(dt) >= A["zone_ab_k"]).sum() * area) / 1e4, 2),
+                                       "reichweite_0_1K_m": _reach(dt, g, A["zone_ab_k"])},
         "gefuehlte_temperatur": "Im Baumschatten ist es für Menschen an heißen Tagen gefühlt ca. 10-15 °C kühler "
                                 "als in der Sonne auf Asphalt (PET, Literaturwert).",
-        "gebaeude_in_zone_ab_0_1K": sum(1 for d in bld_dt if abs(d) >= 0.1),
+        "gebaeude_in_zone_ab_0_1K": sum(1 for d in bld_dt if abs(d) >= A["zone_ab_k"]),
         "sensible_einrichtungen": sens[:10],
-        "datenquellen": [quelle, f"Bäume: {len(trees)} Einzelbäume aus OSM (Krone 8 m, wenn nicht angegeben)"],
+        "annahmen": [{"annahme": "Größe der Maßnahme (Kreisradius)", "schluessel": "radius_m", "wert": radius_m,
+                      "einheit": "m", "geaendert": radius_m != 50, "wichtig": True}] + tabelle,
+        "datenquellen": [quelle, f"Bäume: {len(trees)} Einzelbäume aus OSM (Krone {A['baumkrone_m']} m, wenn nicht angegeben)"],
         "warnungen": warnings,
         "hinweis": "Grobe Abschätzung mit Literaturwerten (Versiegelung +1..3 K, Baumkronen -2..5 K je 100 % "
                    "in ca. 100 m Umkreis), keine Klimasimulation: kein Wind, keine Gebäudeschatten, keine Nacht. "
@@ -864,9 +936,9 @@ def hitze(lat, lon, radius_m=50, massnahme="baeume_faellen", gebiet_m=400, prefi
     }
 
 
-def _reach(dt, g):
+def _reach(dt, g, thr=0.1):
     """Wie weit reicht eine Änderung von mindestens 0,1 K (Meter vom Mittelpunkt)?"""
-    r, c = np.nonzero(np.abs(dt) >= 0.1)
+    r, c = np.nonzero(np.abs(dt) >= thr)
     if not len(r):
         return 0
     return round(float(np.hypot(g["xc"][c] - g["x0"], g["yc"][r] - g["y0"]).max()))

@@ -23,6 +23,7 @@ from pyproj import Transformer
 from shapely.geometry import LineString, Point, mapping
 from shapely.ops import transform as shp_transform
 
+import annahmen as annahmen_mod
 import geo_tools
 import local_osm
 
@@ -43,13 +44,39 @@ NOISE_ACTIVITY = {
     "laut": (112, "Abbruch, Stemmen, Betonsägen"),
     "sehr_laut": (120, "Rammen, Spundwände, Presslufthammer im Dauerbetrieb"),
 }
-# Immissionsrichtwerte AVV Baulärm, tagsüber (für Schulen/Kitas: Annahme allgemeines Wohngebiet)
-LIMITS = {"hospital": 45, "clinic": 45, "nursing_home": 45, "social_facility": 45,
-          "school": 55, "kindergarten": 55, "childcare": 55, "wohngebaeude": 55}
 KIND_DE = {"hospital": "Krankenhaus", "clinic": "Klinik", "nursing_home": "Pflegeheim",
            "social_facility": "Soziale Einrichtung", "school": "Schule", "kindergarten": "Kita",
            "childcare": "Kinderbetreuung"}
-RING_COLORS = {75: "#7f0000", 70: "#d7301f", 65: "#fc8d59", 60: "#fdcc8a", 55: "#fef0d9"}
+RING_COLORS = ["#fef0d9", "#fdcc8a", "#fc8d59", "#d7301f", "#7f0000"]   # leise -> laut
+
+
+# ---------- Annahmen: alle vom Agenten anpassbar (Parameter "annahmen"), Ergebnis enthält die Tabelle ----------
+def _a(wert, einheit, info):
+    return {"wert": wert, "einheit": einheit, "info": info}
+
+
+VERKEHR_DEFAULTS = {
+    "untersuchungsradius_m": _a(1500, "m", "Straßennetz im Umkreis um die Baustelle"),
+    "sperrung_m": _a(30, "m", "alle Straßenabschnitte bis zu diesem Abstand werden gesperrt"),
+    "fahrten": _a(1500, "Anzahl", "simulierte Durchgangsfahrten"),
+    "rand_ab_radius_anteil": _a(0.6, "Anteil", "Start/Ziel der Fahrten liegen außerhalb dieses Anteils des Radius"),
+    "min_fahrtlaenge_anteil": _a(1.0, "Anteil", "Start und Ziel mindestens so weit auseinander (x Radius)"),
+    "grundverkehr_faktor": _a(1.0, "x Median", "Grundverkehr je Abschnitt (Anwohner, Lieferverkehr) als Vielfaches des Medians"),
+    "zufallsstart": _a(42, "-", "Startwert des Zufalls (gleich = gleiches Ergebnis)"),
+}
+LAERM_DEFAULTS = {
+    "schallleistung_db": _a({"normal": 105, "laut": 112, "sehr_laut": 120}, "dB(A)",
+                            "Schallleistung Lw je Tätigkeit (Bagger/Lkw, Abbruch, Rammen)"),
+    "bodendaempfung_db": _a(8, "dB", "Abzug für Punktquelle über Boden: L = Lw - 20 log10(r) - Abzug"),
+    "mindestabstand_m": _a(5, "m", "kleinster Abstand in der Formel (direkt an der Quelle)"),
+    "laermring_unterster_db": _a(55, "dB(A)", "unterster Lärmring; darüber 4 weitere in 5-dB-Schritten"),
+    "richtwerte_db": _a({"krankenhaus": 45, "pflege": 45, "soziale_einrichtung": 45, "schule": 55, "kita": 55,
+                         "sonst": 55}, "dB(A)", "Immissionsrichtwerte tags (AVV Baulärm; Schule/Kita wie allg. Wohngebiet)"),
+}
+annahmen_mod.wichtig(VERKEHR_DEFAULTS, "sperrung_m", "fahrten", "grundverkehr_faktor")
+annahmen_mod.wichtig(LAERM_DEFAULTS, "schallleistung_db", "bodendaempfung_db", "richtwerte_db")
+LIMIT_KEY = {"hospital": "krankenhaus", "clinic": "krankenhaus", "nursing_home": "pflege",
+             "social_facility": "soziale_einrichtung", "school": "schule", "kindergarten": "kita", "childcare": "kita"}
 
 
 def _out(name):
@@ -194,8 +221,15 @@ def _path_length(G, path):
     return sum(min(d["length"] for d in G[u][v].values()) for u, v in _path_edges(G, path))
 
 
-def traffic_impact(lat, lon, radius_m=1500, closure_m=30, trips=1500, prefix="baustelle"):
-    """Verkehrsverlagerung bei Sperrung aller Straßenabschnitte bis closure_m um (lat, lon)."""
+def traffic_impact(lat, lon, radius_m=None, closure_m=None, trips=None, prefix="baustelle", annahmen=None):
+    """Verkehrsverlagerung bei Sperrung aller Straßenabschnitte bis closure_m um (lat, lon).
+    annahmen: dict mit geänderten Werten aus VERKEHR_DEFAULTS."""
+    over = dict(annahmen or {})
+    for key, val in (("untersuchungsradius_m", radius_m), ("sperrung_m", closure_m), ("fahrten", trips)):
+        if val is not None:
+            over.setdefault(key, val)
+    A, tabelle = annahmen_mod.anwenden(VERKEHR_DEFAULTS, over)
+    radius_m, closure_m, trips = A["untersuchungsradius_m"], A["sperrung_m"], int(A["fahrten"])
     G = ox.project_graph(_load_graph(lat, lon, radius_m), to_crs="EPSG:25832")
     x0, y0 = TO_UTM.transform(lon, lat)
     site = Point(x0, y0)
@@ -211,8 +245,8 @@ def traffic_impact(lat, lon, radius_m=1500, closure_m=30, trips=1500, prefix="ba
     H.remove_edges_from(list(closed.index))
 
     # Durchgangsverkehr: Fahrten zwischen Punkten am Rand des Gebiets, quer durch die Mitte
-    rim = [n for n, d in G.nodes(data=True) if math.hypot(d["x"] - x0, d["y"] - y0) > 0.6 * radius_m]
-    rng = random.Random(42)
+    rim = [n for n, d in G.nodes(data=True) if math.hypot(d["x"] - x0, d["y"] - y0) > A["rand_ab_radius_anteil"] * radius_m]
+    rng = random.Random(int(A["zufallsstart"]))
     base, after = {}, {}
     detours, unreachable, n_trips, n_affected = [], 0, 0, 0
     for _ in range(trips * 3):
@@ -220,7 +254,7 @@ def traffic_impact(lat, lon, radius_m=1500, closure_m=30, trips=1500, prefix="ba
             break
         o, d = rng.sample(rim, 2)
         do, dd = G.nodes[o], G.nodes[d]
-        if math.hypot(do["x"] - dd["x"], do["y"] - dd["y"]) < radius_m:
+        if math.hypot(do["x"] - dd["x"], do["y"] - dd["y"]) < A["min_fahrtlaenge_anteil"] * radius_m:
             continue
         try:
             p0 = nx.shortest_path(G, o, d, weight="length")
@@ -249,7 +283,7 @@ def traffic_impact(lat, lon, radius_m=1500, closure_m=30, trips=1500, prefix="ba
     max_delta = max((abs(after.get(e, 0) - base.get(e, 0)) for e in changed), default=1)
     # Grundverkehr (Anwohner, Lieferverkehr ...), den das Durchgangsmodell nicht kennt: ohne ihn würde eine
     # ruhige Nebenstraße bei 0 starten und die dB-Änderung wäre stark übertrieben
-    grund = statistics.median([c for c in base.values() if c > 0] or [1])
+    grund = statistics.median([c for c in base.values() if c > 0] or [1]) * A["grundverkehr_faktor"]
     feats, by_street = [], {}
     for u, v in changed:
         data = min(G[u][v].values(), key=lambda d: d["length"])
@@ -283,6 +317,7 @@ def traffic_impact(lat, lon, radius_m=1500, closure_m=30, trips=1500, prefix="ba
 
     return {
         "files": {"verkehr": traffic_path, "sperrung": closure_path},
+        "annahmen": tabelle,
         "gesperrte_strassen": sorted({_edge_name(r) for _, r in closed.iterrows()}),
         "modell": f"{n_trips} simulierte Durchgangsfahrten (kürzester Weg) im Umkreis {radius_m} m",
         "betroffene_fahrten": n_affected,
@@ -301,15 +336,20 @@ def traffic_impact(lat, lon, radius_m=1500, closure_m=30, trips=1500, prefix="ba
 
 
 # ---------- Baulärm ----------
-def _level(lw, r):
-    return lw - 20 * math.log10(max(r, 5)) - 8
+def _level(lw, r, A=None):
+    A = A or {"mindestabstand_m": 5, "bodendaempfung_db": 8}
+    return lw - 20 * math.log10(max(r, A["mindestabstand_m"])) - A["bodendaempfung_db"]
 
 
-def construction_noise(lat, lon, activity="normal", lw_db=None, prefix="baustelle"):
-    """Lärmringe einer Baustelle + betroffene Gebäude / sensible Einrichtungen."""
-    lw, desc = (lw_db, "eigener Wert") if lw_db else NOISE_ACTIVITY.get(activity, NOISE_ACTIVITY["normal"])
-    levels = [75, 70, 65, 60, 55]
-    radius = {L: 10 ** ((lw - 8 - L) / 20) for L in levels}
+def construction_noise(lat, lon, activity="normal", lw_db=None, prefix="baustelle", annahmen=None):
+    """Lärmringe einer Baustelle + betroffene Gebäude / sensible Einrichtungen.
+    annahmen: dict mit geänderten Werten aus LAERM_DEFAULTS."""
+    A, tabelle = annahmen_mod.anwenden(LAERM_DEFAULTS, annahmen)
+    activity = activity if activity in NOISE_ACTIVITY else "normal"
+    lw, desc = (lw_db, "eigener Wert") if lw_db else (A["schallleistung_db"][activity], NOISE_ACTIVITY[activity][1])
+    low = A["laermring_unterster_db"]
+    levels = [low + 20, low + 15, low + 10, low + 5, low]
+    radius = {L: 10 ** ((lw - A["bodendaempfung_db"] - L) / 20) for L in levels}
     x0, y0 = TO_UTM.transform(lon, lat)
     site = Point(x0, y0)
 
@@ -321,15 +361,15 @@ def construction_noise(lat, lon, activity="normal", lw_db=None, prefix="baustell
         label = f"{L}–{upper} dB(A)" if upper in radius else f"über {L} dB(A)"
         ring_feats.append({"type": "Feature", "geometry": mapping(_to_wgs(geom)), "properties": {
             "name": label, "pegel_ab": L, "radius_m": round(radius[L]),
-            "_style": {"color": RING_COLORS[L], "fillColor": RING_COLORS[L], "fillOpacity": 0.35, "weight": 1},
+            "_style": {"color": RING_COLORS[i], "fillColor": RING_COLORS[i], "fillOpacity": 0.35, "weight": 1},
             "_popup": f"<b>Baulärm {label}</b><br>bis {round(radius[L])} m von der Baustelle"}})
     ring_feats.append({"type": "Feature", "geometry": {"type": "Point", "coordinates": [lon, lat]}, "properties": {
         "name": "Baustelle", "_style": {"radius": 9, "fillColor": "#000000", "color": "#ffeb3b", "weight": 3},
         "_popup": f"<b>Baustelle</b><br>Lw = {lw} dB(A) ({desc})"}})
     rings_path = _write_geojson(_out(f"{prefix}_laermringe.geojson"), ring_feats)
 
-    # OSM-Daten im Umkreis des 55-dB-Rings
-    r55 = radius[55]
+    # OSM-Daten im Umkreis des untersten Rings
+    r55 = radius[low]
     lon_min, lat_min = TO_WGS.transform(x0 - r55, y0 - r55)
     lon_max, lat_max = TO_WGS.transform(x0 + r55, y0 + r55)
     bbox = (lat_min, lon_min, lat_max, lon_max)
@@ -344,7 +384,7 @@ def construction_noise(lat, lon, activity="normal", lw_db=None, prefix="baustell
                 x, y = TO_UTM.transform(lo, la)
                 d = math.hypot(x - x0, y - y0)
                 if d <= r55:
-                    yield feat, d, _level(lw, d)
+                    yield feat, d, _level(lw, d, A)
 
     band_counts = {f"ab {L} dB(A)": 0 for L in levels}
     for _, _, lvl in located(buildings["path"]):
@@ -356,7 +396,7 @@ def construction_noise(lat, lon, activity="normal", lw_db=None, prefix="baustell
     for feat, d, lvl in located(sensitive["path"]):
         p = feat["properties"]
         kind = p.get("amenity", "")
-        limit = LIMITS.get(kind, 55)
+        limit = A["richtwerte_db"][LIMIT_KEY.get(kind, "sonst")]
         name = p.get("name") or KIND_DE.get(kind, kind)
         over = lvl > limit
         sens_list.append({"name": name, "art": KIND_DE.get(kind, kind), "entfernung_m": round(d),
@@ -371,6 +411,7 @@ def construction_noise(lat, lon, activity="normal", lw_db=None, prefix="baustell
 
     return {
         "files": {"laermringe": rings_path, "einrichtungen": sens_path},
+        "annahmen": tabelle,
         "schallleistung_lw_db": lw, "taetigkeit": desc,
         "radius_m": {f"{L} dB(A)": round(r) for L, r in radius.items()},
         "gebaeude_mit_pegel": band_counts,

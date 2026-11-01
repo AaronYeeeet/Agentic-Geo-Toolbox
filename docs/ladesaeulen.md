@@ -36,6 +36,8 @@ Alle Rohdaten liegen in `data/` (nicht im Git). `ladeinfra_data.py` lädt fehlen
 | **Verkehrszählungen Darmstadt** ([opendata.darmstadt.de](https://opendata.darmstadt.de)) | Laut Statistik-Bulletin gibt es Rohdaten der Verkehrsdetektoren 2022–2025, minütlich. Struktur und Zugriff noch nicht geprüft. Wäre der nächste Schritt, um die Simulation zu kalibrieren. |
 | Ladesäulenregister als Webservice | BNetzA bietet laut eigener Seite einen tagesaktuellen Webservice an; derzeit nutzen wir die monatliche CSV |
 
+> **Alle Zahlen unten sind Standardannahmen** und vom Agenten über den Parameter `annahmen` änderbar (seit 01.11.2026). Vollständige Liste: [annahmen.md](annahmen.md). Jede Antwort endet mit einer Annahmen-Tabelle.
+
 ## Methode (`ladeinfra_tools.ladesaeulen`)
 
 1. **Ladebedarf Wohnen** je 100-m-Zelle (kWh/Tag):
