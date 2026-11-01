@@ -38,12 +38,13 @@ the catalogue is the main lever for capability (§11).
 ```
  Browser (React + MapLibre)                       Backend (FastAPI, Python)
 ┌───────────────────────────┐   POST /api/chat   ┌──────────────────────────────────────┐
-│ Chat.jsx   prompt, upload │ ─────────────────► │ api/chat.py → orchestrator.run()     │
-│            event log      │ ◄───────────────── │   loop: llm.complete() ─► LLM API    │
-│ MapView.jsx  layers       │  SSE event stream  │         ↓ tool_calls                 │
+│ SessionList  saved chats  │ ─────────────────► │ api/chat.py → orchestrator.run()     │
+│ Chat/Turn  prompt, steps  │ ◄───────────────── │   loop: llm.complete() ─► LLM API    │
+│ MapView+LayerPanel layers │  SSE event stream  │         ↓ tool_calls                 │
 └───────────────────────────┘                    │         registry → tools/*.py        │
                                                  │         ↓ ToolResult                 │
                                                  │   Session (workspace.py): layers     │
+                                                 │     ↕ workspace/<session>/ on disk   │
                                                  └───────────────┬──────────────────────┘
                                                                  │ HTTP
                                   ┌──────────────────────────────┼─────────────────────────┐
@@ -62,9 +63,10 @@ Three ideas carry the whole design:
 2. **Two outputs per tool.** A `ToolResult` has a `summary` (for the LLM) and
    `layers` (full GeoJSON for the map). The orchestrator routes each to the
    right place.
-3. **Everything is an event.** The agent loop yields events (`tool_call`,
-   `layer`, …) that are streamed to the browser *and* written to the trace
-   file. UI and reproducibility log come from the same source.
+3. **Everything is an event.** The agent loop yields events (`llm_request`,
+   `tool_call`, `layer`, …) that are streamed to the browser *and* written to
+   the trace file. UI, reopened chats and reproducibility log come from the
+   same source: a saved chat is replayed from its traces.
 
 ## 4. Components
 
@@ -73,8 +75,13 @@ Three ideas carry the whole design:
 | File | Role |
 |------|------|
 | `main.jsx` | React entry point. |
-| `App.jsx` | Layout (sidebar + map), creates the session, polls `/api/health`, shows warnings (backend down / no API key), keeps the layer list. |
-| `Chat.jsx` | Message list, composer, file upload. Turns SSE events into chat bubbles; re-creates the session if the backend restarted. |
+| `App.jsx` | Layout (chat list, chat, map) and all state: open chat, its turns and layers, settings, detail mode. Reopens the last chat on load, streams new turns, pushes layer visibility/deletes to the backend. |
+| `SessionList.jsx` | Left rail like ChatGPT: saved chats newest first, new chat, rename, delete. Locked while the agent works. |
+| `Turn.jsx` | One turn: prompt, a collapsible *activity* block (thoughts, tool calls with arguments/result/duration, layer chips), the Markdown answer. In detail mode also every LLM call: input (new messages, tool list, temperature) and output (reasoning, text, tool calls, tokens, duration). |
+| `LayerPanel.jsx` | Map overlay: layers of the open chat with visibility checkbox, colour swatch, feature count, zoom, delete. |
+| `colors.js` | Layer colour from the layer id, so map and panel agree across reloads. |
+| `Settings.jsx` | ⚙️ panel: model picker (grouped by provider, models without a key are disabled), max steps, temperature. Stored in `localStorage` and sent with every chat request. |
+| `Chat.jsx` | Renders the turns, composer, file upload; in detail mode a modal with the full LLM context (`/history`). |
 | `MapView.jsx` | MapLibre GL map with an OSM raster basemap (no API key). Adds GeoJSON layers as fill/line/circle depending on geometry type, WMS as raster tiles, zooms to new layers. Falls back to a message if WebGL is unavailable. |
 | `api.js` | `fetch` wrappers. `streamChat` reads SSE over a POST response by hand (the browser's `EventSource` only supports GET). |
 | `vite.config.js` | Dev server on :5173, proxies `/api` to :8000 so there is one origin (no CORS issues in dev). |
@@ -85,11 +92,12 @@ Three ideas carry the whole design:
 |------|------|
 | `main.py` | FastAPI app, CORS, routers, `/api/health` (model, `llm_configured`, tool list). |
 | `config.py` | Settings from `.env` via pydantic-settings. |
-| `workspace.py` | `Session` (layers + LLM message history, in memory) and `Layer` (GeoDataFrame + metadata, `to_descriptor()` for the frontend). Writes traces to disk. |
-| `api/chat.py` | `POST /sessions`, `GET /sessions/{id}/layers`, `POST /chat` (SSE). |
+| `workspace.py` | `Session` (layers, WMS overlays, LLM history, title) and `Layer` (GeoDataFrame + metadata, `to_descriptor()` for the frontend). Mirrors everything to the session folder; `SessionStore` loads sessions from disk on demand and lists saved chats. |
+| `api/chat.py` | Sessions (create, list, open, rename, delete, history), layers (list, show/hide, rename, delete), `GET /models`, `POST /chat` (SSE). |
 | `api/upload.py` | `POST /sessions/{id}/upload`: reads any GDAL-readable vector file into a layer and notes it in the LLM history. |
 | `agent/orchestrator.py` | **The agent loop** (see §7). |
 | `agent/llm.py` | The only provider-specific code (LiteLLM). |
+| `agent/models.py` | Model catalog for the frontend: curated direct-provider models + OpenRouter's free tool-calling models (fetched live, cached 1 h), each with `available`/`missing_keys`. |
 | `agent/registry.py` | `@tool` decorator, `ToolResult`, export of JSON schemas for function calling. |
 | `agent/prompts.py` | System prompt: role, working style, known data sources. |
 | `agent/tools/*.py` | The tool catalogue (below). |
@@ -113,25 +121,49 @@ Three ideas carry the whole design:
 
 ## 5. Data model
 
-**Session** (`workspace.py`): `id`, `layers: dict[layer_id → Layer]`,
-`history: list[message]` (the full LLM conversation incl. tool results). Lives
-in a Python dict, so **a backend restart loses all sessions**. The frontend
-detects the 404 and creates a new one.
+**Session** (`workspace.py`): `id`, `title`, `layers: dict[layer_id → Layer]`,
+`rasters` (WMS descriptors), `history: list[message]` (the full LLM
+conversation incl. tool results). Held in memory while used and mirrored to
+disk after every step, so chats survive a backend restart:
 
-**Layer**: `id`, `name`, `source` (`osm`, `upload`, `buffer`, …), `gdf`
-(GeoDataFrame, stored in WGS84).
+```
+workspace/<session_id>/
+    meta.json            title (first prompt, renameable), created, updated
+    history.json         LLM message log
+    layers/index.json    layer order, names, visibility, WMS descriptors
+    layers/<id>.geojson  vector data (WGS84)
+    traces/trace_<ms>.json  one event log per turn or upload (replayed by the UI)
+    uploads/
+```
+
+A new session is written only with its first message or upload, so empty
+chats never show up in the list. After an error or abort, unanswered tool
+calls get an "interrupted" tool message, otherwise providers would reject
+the saved history. Session ids are checked against `sess_<12 hex>` before
+touching the disk.
+
+**Layer**: `id`, `name`, `source` (`osm`, `upload`, `buffer`, …), `visible`,
+`gdf` (GeoDataFrame, WGS84).
 
 **Layer descriptor** (what the frontend receives), from `Layer.to_descriptor()`:
 
 ```json
 { "id": "layer_05af6c66", "name": "Schulen", "source": "osm",
   "kind": "geojson", "geometry_type": "polygon", "feature_count": 85,
-  "bounds": [8.61, 49.80, 8.69, 49.93], "geojson": { "type": "FeatureCollection", "...": "..." } }
+  "bounds": [8.61, 49.80, 8.69, 49.93], "visible": true }
 ```
 
+The descriptor carries **no geometry**. The browser fetches it per layer from
+`GET /api/sessions/{id}/layers/{layer_id}/geojson`, which streams the file
+from disk, and only for visible layers. On the backend a layer's GeoDataFrame
+is read from its file only when a tool needs it. GeoJSON is written with
+`na="drop"`: OSM layers have hundreds of sparse tag columns, and writing every
+one as `null` made 32k Darmstadt buildings a 300 MB file (now 14 MB). Opening
+such a chat used to block the backend for minutes.
+
 WMS layers use `"kind": "wms-raster"` with a `tile_url` containing MapLibre's
-`{bbox-epsg-3857}` placeholder instead of GeoJSON. They are not stored in the
-session, so tools cannot process them.
+`{bbox-epsg-3857}` placeholder instead of GeoJSON. They are saved with the
+session and listed to the LLM as "display only"; tools cannot process them.
 
 **ToolResult** (`registry.py`): `summary: str` → LLM, `layers: list[descriptor]` → map.
 
@@ -139,17 +171,21 @@ session, so tools cannot process them.
 
 | Method | Path | Purpose |
 |--------|------|---------|
-| GET | `/api/health` | `{status, model, llm_configured, tools[]}` |
+| GET | `/api/health` | `{status, model, max_steps, llm_configured, llm_missing_keys, tools[]}` (defaults from `.env`) |
+| GET | `/api/models` | `{models: [{id, name, provider, free, context_length, note, available, missing_keys, default}]}` |
 | POST | `/api/sessions` | → `{session_id}` |
-| GET | `/api/sessions/{id}/layers` | all layer descriptors of a session |
+| GET | `/api/sessions/{id}/layers` | all layer descriptors of a session (metadata) |
+| GET | `/api/sessions/{id}/layers/{layer_id}/geojson` | the layer's geometry (GeoJSON file) |
 | POST | `/api/sessions/{id}/upload` | multipart `file` → `{layer}` |
-| POST | `/api/chat` | `{session_id, message}` → `text/event-stream` |
+| POST | `/api/chat` | `{session_id, message, model?, max_steps? (1–30), temperature? (0–2)}` → `text/event-stream`. 400 if the model is not in the catalog or its key is missing. |
 
 Each SSE message is `data: <json>\n\n`. Event types, in typical order:
 
 | `type` | Fields | Meaning |
 |--------|--------|---------|
-| `user` | `content` | echo of the prompt |
+| `user` | `content`, `model`, `max_steps`, `temperature` | echo of the prompt + the settings used |
+| `llm_request` | `step`, `model`, `temperature`, `total_messages`, `new_messages`, `tools` | what is sent to the LLM: the messages added since its last answer (system prompt, user, tool results) |
+| `llm_response` | `step`, `duration_s`, `content`, `reasoning`, `tool_calls`, `finish_reason`, `usage` | what the LLM returned, with token counts |
 | `assistant_thought` | `content` | text the LLM wrote alongside tool calls (its plan) |
 | `tool_call` | `name`, `arguments` (JSON string) | a tool is about to run |
 | `layer` | `layer` (descriptor) | a new map layer |
@@ -157,6 +193,10 @@ Each SSE message is `data: <json>\n\n`. Event types, in typical order:
 | `assistant_message` | `content` | final answer, the loop ends |
 | `error` | `message` | LLM/API error (tool errors are *not* errors, they go back to the LLM) |
 | `done` | — | stream end (always sent) |
+| `aborted` | — | trace only: the browser closed the stream |
+| `upload` | `filename`, `layer_id`, `feature_count` | trace only: a file upload, so it shows up in a reopened chat |
+
+Every event carries `t` (seconds since the turn started).
 
 ## 7. The agent loop (`orchestrator.run`)
 
@@ -186,9 +226,11 @@ Notes:
 
 ## 8. The LLM layer
 
-`agent/llm.py` calls `litellm.completion(model=LLM_MODEL, tools=…, tool_choice="auto")`.
-LiteLLM translates the OpenAI-style tool schema into each provider's format, so
-switching Claude ↔ Ollama is a `.env` change.
+`agent/llm.py` calls `litellm.completion(model=…, tools=…, tool_choice="auto")`.
+LiteLLM translates the OpenAI-style tool schema into each provider's format.
+The model is `LLM_MODEL` from `.env` unless the frontend's ⚙️ panel picks
+another one per request. The browser may only pick models from the catalog
+(`agent/models.py`), and API keys stay in `backend/.env`.
 
 Provider notes learned while building the prototype:
 - **Claude** (`anthropic/claude-opus-5-5`, `anthropic/claude-sonnet-5-5`, …):
@@ -201,6 +243,14 @@ Provider notes learned while building the prototype:
   ~2–4 s per step. Free tier = 5 requests/minute and 20 requests/day per model:
   `llm.complete` retries a per-minute 429 after the delay Google names and
   fails fast with a clear error once the daily quota is used up.
+- **OpenRouter** (`openrouter/<id>`, one key for many models): free models
+  (`:free`, plus the auto router `openrouter/free`) cost nothing. Limits: 20
+  requests/minute, 50/day, or 1000/day once at least 10 $ of credits were ever
+  bought (the credits are not used up by free models). The free list changes
+  often, so the catalog fetches it live from `/api/v1/models`, filtered to
+  models that support `tools`. Free models are frequently rate-limited
+  upstream; after 3 retries the agent reports "pick another model". Free
+  providers may log prompts for training.
 - **Local (Ollama)**: free and offline, but needs a model trained for tool
   calling (e.g. `qwen2.5`, `llama3.1`). Small models often pick wrong tools,
   invent `layer_id`s or stop after one step. Use `ollama_chat/<model>`.
@@ -216,11 +266,12 @@ Provider notes learned while building the prototype:
 | **Pinned deps**: `requirements.txt` (lower bounds only, use `pip freeze > requirements.lock` for exact pins) + `package-lock.json` | ⚠️ Python not exactly pinned |
 | **OSM cache**: `workspace/osm_cache/` stores raw Overpass responses, so identical queries return identical data | ✅ |
 | **Deterministic LLM**: `temperature=0` for local models; not available on current Claude models | ⚠️ LLM decisions can vary between runs, so the trace is the record |
-| **Session workspaces**: uploads + traces per session on disk | ✅ (layers themselves are not saved) |
+| **Session workspaces**: history, layers (GeoJSON), uploads and traces per session on disk | ✅ |
 
-Traces are large because `layer` events contain full GeoJSON. That is useful
-(the result is reproducible from the trace alone) but a city of buildings can
-reach several MB.
+Traces hold layer *metadata* only; the geometry lives once in
+`layers/<id>.geojson`. (Early traces contained full GeoJSON and reached 6 MB.)
+Each LLM call is in the trace with its new input messages, output and token
+counts, so a run can be inspected step by step.
 
 ## 10. What works well / what doesn't
 
@@ -245,11 +296,12 @@ Measured with `scripts/smoke_test.py` and manual tests (Nov 2026):
   their resources are mostly websites/PDFs. The agent then has nothing to load.
 - **`classify_surface` is fake**: the numbers come from a hash, not from imagery.
   Do not present them as results.
-- **No persistence**: backend restart = sessions and layers gone.
-- **Large layers**: all GeoJSON goes over SSE into the browser; 10k+ buildings
-  get sluggish.
-- **Map UI is minimal**: no layer toggle/removal, no feature popups, legend
-  without colours; WMS tiles show nothing when zoomed far out (server scale limits).
+- **Large layers**: geometry is fetched per layer and only when visible, but a
+  whole city of buildings (30k+ polygons, ~14 MB) still makes the map slower.
+  Vector tiles would fix that (P3).
+- **Map UI**: layers can be toggled, zoomed and deleted, but there are no
+  feature popups or styling options; WMS tiles show nothing when zoomed far
+  out (server scale limits).
 - **Analysis gaps**: no attribute filter, difference/erase, spatial join,
   distance/nearest, dissolve-by-attribute, raster analysis, export/download.
 
@@ -273,12 +325,15 @@ Prioritised for the assignment:
 - [ ] Real `classify_surface`: fetch DOP tiles for the AOI via WMS GetMap,
       run a segmentation model (torchgeo / HuggingFace, e.g. a land-cover
       SegFormer), return class shares + a polygon/raster layer.
-- [ ] Layer panel: toggle visibility, delete, colour swatches, feature popups.
+- [x] Layer panel: toggle visibility, zoom, delete, colour swatches.
+- [ ] Feature popups (attributes on click), layer styling.
+- [x] Saved chats with history, frontend model picker, LLM input/output view.
 - [ ] Trim history (drop old tool summaries) to limit cost in long sessions.
 - [ ] Exact pins: `requirements.lock`.
 
 **P3: beyond the prototype**
-- [ ] Persist sessions/layers (SQLite/PostGIS, GeoParquet files).
+- [ ] Move persistence from JSON/GeoJSON files to SQLite/PostGIS or GeoParquet
+      (files are fine for one user, not for many or for big layers).
 - [ ] Send large layers as files/vector tiles instead of inline GeoJSON.
 - [ ] PyQGIS-backed tool set (Docker) for the full QGIS Processing registry.
 - [ ] Multi-agent split (planner / executor / reviewer) as in GeoAgent.

@@ -1,6 +1,8 @@
 """File upload endpoint: user-supplied geodata becomes a session layer."""
 from __future__ import annotations
 
+from pathlib import Path
+
 import geopandas as gpd
 from fastapi import APIRouter, File, HTTPException, UploadFile
 
@@ -18,7 +20,7 @@ async def upload(session_id: str, file: UploadFile = File(...)):
 
     dest = session.dir / "uploads"
     dest.mkdir(exist_ok=True)
-    path = dest / file.filename
+    path = dest / Path(file.filename or "upload").name  # no path parts from the client
     path.write_bytes(await file.read())
 
     try:
@@ -28,12 +30,17 @@ async def upload(session_id: str, file: UploadFile = File(...)):
 
     if gdf.crs is None:
         gdf = gdf.set_crs(epsg=4326)
-    layer = session.add_layer(gdf.to_crs(epsg=4326), file.filename, source="upload")
+    layer = session.add_layer(gdf.to_crs(epsg=4326), path.name, source="upload")
 
     # Let the agent know (in its history) that a layer was added out-of-band.
     session.history.append({
         "role": "user",
-        "content": f"[system] The user uploaded file '{file.filename}', loaded as "
+        "content": f"[system] The user uploaded file '{path.name}', loaded as "
         f"layer '{layer.id}' ({layer.geometry_type()}, {len(gdf)} features).",
     })
+    session.save()
+    # Logged like a chat turn, so the upload shows up when the chat is reopened.
+    session.write_trace([{"type": "upload", "filename": path.name, "layer_id": layer.id,
+                          "feature_count": int(len(gdf)), "t": 0.0}],
+                        session.new_trace_path())
     return {"layer": layer.to_descriptor()}

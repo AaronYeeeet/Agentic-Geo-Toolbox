@@ -25,6 +25,7 @@ def health():
     return {
         "status": "ok",
         "model": settings.llm_model,
+        "max_steps": settings.agent_max_steps,
         "llm_configured": llm.is_configured(),
         "llm_missing_keys": llm.missing_keys(),
         "tools": sorted(all_tools().keys()),

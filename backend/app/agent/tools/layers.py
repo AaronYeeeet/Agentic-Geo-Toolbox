@@ -30,7 +30,8 @@ def list_layers(session: Session) -> ToolResult:
 )
 def show_layer(session: Session, layer_id: str) -> ToolResult:
     layer = session.get_layer(layer_id)
+    session.update_layer(layer_id, visible=True)  # the user may have hidden it
     return ToolResult(
-        summary=f"Displayed layer '{layer.name}' ({len(layer.gdf)} features).",
+        summary=f"Displayed layer '{layer.name}' ({layer.feature_count} features).",
         layers=[layer.to_descriptor()],
     )

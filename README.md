@@ -98,8 +98,11 @@ network services. Use it to tell tool bugs from LLM planning mistakes.
 
 ## Switching the LLM provider
 
-Everything routes through `backend/app/agent/llm.py` (LiteLLM). Change only
-`.env`:
+Everything routes through `backend/app/agent/llm.py` (LiteLLM). The model can
+be picked **in the frontend** (⚙️ next to the title): the list shows the
+curated models plus all free OpenRouter models with tool calling; models whose
+key is missing in `.env` are greyed out. The choice, max steps and temperature
+are stored in the browser. `LLM_MODEL` in `.env` is the default:
 
 ```ini
 # Claude (cloud), API key from https://console.anthropic.com
@@ -109,6 +112,10 @@ ANTHROPIC_API_KEY=sk-ant-...
 # Google Gemini (free tier, key from https://aistudio.google.com/apikey)
 LLM_MODEL=gemini/gemini-3.5-flash
 GEMINI_API_KEY=...
+
+# OpenRouter (one key, many free models; key from https://openrouter.ai/keys)
+LLM_MODEL=openrouter/openrouter/free      # auto-picks a free model; or e.g. openrouter/google/gemma-4-31b-it:free
+OPENROUTER_API_KEY=sk-or-...
 
 # Groq (free tier, key from https://console.groq.com/keys)
 LLM_MODEL=groq/openai/gpt-oss-120b
@@ -127,7 +134,9 @@ requests/day** per model), and one agent turn uses one request per step (often
 3–10), so the daily quota lasts only a few turns. On HTTP 429 the backend waits
 as long as the provider asks and retries (`agent/llm.py`), so a turn may pause
 for a few seconds instead of failing. A used-up daily quota fails immediately
-with a clear message; switch `LLM_MODEL` (e.g. to Groq) to keep testing.
+with a clear message; pick another model in ⚙️ to keep testing. OpenRouter
+free models allow 20 requests/minute and 50/day (1000/day after buying 10 $ of
+credits once), and you can switch between many of them with one key.
 Tested Nov 2026: `gemini-3.5-flash` works
 well; `gemini-2.5-flash` is no longer available to new keys; `gemini-3.8-flash`
 did not respond within 60 s.
@@ -142,15 +151,30 @@ results) to `backend/workspace/<session_id>/traces/`. Uploaded files are kept
 under the same session folder. Pin dependencies via `requirements.txt` /
 `package-lock.json` to reproduce an environment.
 
+## Using the UI
+
+- **Chats** (left, ☰ hides the list): every chat is saved on the backend with
+  its history and layers. Click to reopen, ✎ renames, 🗑 deletes. The last
+  open chat is restored on reload.
+- **Activity block** under each prompt: what the agent did (tools, arguments,
+  results, durations). Open while it works, collapsed afterwards.
+- **Details** (toggle in the header): also shows every LLM call with its input
+  (new messages, tools) and output (reasoning, text, tool calls, tokens), plus
+  a *full LLM context* view. Stored per browser.
+- **Layer panel** (on the map): show/hide, zoom to, delete. Visibility is saved
+  with the chat.
+- **⚙️**: model, max steps, temperature.
+
 ## Troubleshooting
 
 | Symptom | Cause / fix |
 |---------|-------------|
+| Model greyed out in ⚙️ after adding its key | The backend re-reads `.env` on every model list and chat request: save `.env`, then close and reopen ⚙️. No restart needed. |
 | Chat shows `No module named 'mcp'` | LiteLLM ≥ 1.106 needs it: `pip install -r requirements.txt` |
-| `AuthenticationError` / banner "Kein API-Key" | set `ANTHROPIC_API_KEY` in `backend/.env`, restart uvicorn |
-| "Backend wurde neu gestartet …" | sessions live in memory; `--reload` restarts on every code change. Resend the message. |
+| `AuthenticationError` / banner "Kein API-Key" | set the key for the selected model in `backend/.env` (no restart needed) or pick another model in ⚙️ |
+| Answer missing after a backend restart | `--reload` restarts on every code change and cuts a running turn (shown as "abgebrochen"). The chat itself is saved; send the message again. |
 | `fetch_osm` takes minutes or `502 Bad Gateway` | Overpass is overloaded; mirrors are tried automatically, retry later or use a smaller bbox |
-| Where is my request? | `backend/workspace/<session>/traces/`, written live after every step; the session id is shown under the title in the UI |
+| Where is my request? | In the chat list (left). On disk: `backend/workspace/<session>/traces/`, written live after every step; with **Details** on, the session id is shown under the title |
 | Map grey, "Karte nicht verfügbar" | WebGL disabled in the browser (`chrome://gpu`) |
 | WMS overlay empty | many WMS only render at closer zoom levels: zoom in |
 

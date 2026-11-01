@@ -11,7 +11,7 @@ import time
 from typing import Any, Iterator
 
 from ..config import settings
-from ..workspace import Session
+from ..workspace import Session, strip_geometry
 from . import llm, tools  # noqa: F401  (importing tools registers them)
 from .prompts import SYSTEM_PROMPT
 from .registry import get_tool, openai_schema
@@ -56,8 +56,56 @@ def _execute_tool(session: Session, name: str, raw_args: str) -> Any:
         return ToolResult(summary=f"ERROR running {name}: {exc}")
 
 
-def run(session: Session, user_message: str) -> Iterator[dict[str, Any]]:
-    """Drive one user turn. Yields event dicts and persists them as a trace."""
+def _new_messages(history: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Messages added since the LLM last answered: what is new in this request.
+
+    Thinking blocks are left out (long signatures); the reasoning text is shown
+    with the response instead.
+    """
+    last = max((i for i, m in enumerate(history) if m["role"] == "assistant"), default=-1)
+    return [{k: v for k, v in m.items() if k != "thinking_blocks"} for m in history[last + 1:]]
+
+
+def _response_details(response: Any, message: Any) -> dict[str, Any]:
+    usage = getattr(response, "usage", None)
+    return {
+        "content": message.content or "",
+        "reasoning": getattr(message, "reasoning_content", None) or "",
+        "tool_calls": [{"name": tc.function.name, "arguments": tc.function.arguments}
+                       for tc in (getattr(message, "tool_calls", None) or [])],
+        "finish_reason": getattr(response.choices[0], "finish_reason", None),
+        "usage": {k: getattr(usage, k, None)
+                  for k in ("prompt_tokens", "completion_tokens", "total_tokens")} if usage else None,
+    }
+
+
+def _close_open_tool_calls(session: Session) -> None:
+    """After an error/abort, answer tool calls that never got a result.
+
+    Providers reject a history in which an assistant tool call has no matching
+    tool message, so without this a saved chat could not be continued.
+    """
+    answered = {m.get("tool_call_id") for m in session.history if m["role"] == "tool"}
+    for m in session.history:
+        for tc in m.get("tool_calls") or []:
+            if tc["id"] not in answered:
+                session.history.append({"role": "tool", "tool_call_id": tc["id"],
+                                        "content": "ERROR: interrupted before the tool finished."})
+                answered.add(tc["id"])
+
+
+def run(session: Session, user_message: str, model: str | None = None,
+        max_steps: int | None = None,
+        temperature: float | None = None) -> Iterator[dict[str, Any]]:
+    """Drive one user turn. Yields event dicts and persists them as a trace.
+
+    model/max_steps/temperature come from the frontend settings; None means
+    the defaults from backend/.env. Besides the chat events, every LLM call is
+    reported as llm_request/llm_response, so the frontend can show what the
+    model received and returned.
+    """
+    model = model or settings.llm_model
+    max_steps = max_steps or settings.agent_max_steps
     trace: list[dict[str, Any]] = []
     trace_path = session.new_trace_path()
     started = time.monotonic()
@@ -65,10 +113,8 @@ def run(session: Session, user_message: str) -> Iterator[dict[str, Any]]:
     def emit(event: dict[str, Any]) -> dict[str, Any]:
         # The trace is rewritten after every event, so a running or aborted
         # turn is visible on disk too. "t" = seconds since the turn started.
-        entry = {**event, "t": round(time.monotonic() - started, 1)}
-        if event["type"] == "layer":  # geometry would bloat the trace (MBs per step)
-            entry["layer"] = {k: v for k, v in event["layer"].items() if k != "geojson"}
-        trace.append(entry)
+        event = {**event, "t": round(time.monotonic() - started, 1)}
+        trace.append(strip_geometry(event))  # geometry would bloat the trace (MBs per step)
         try:
             session.write_trace(trace, trace_path)
         except Exception:
@@ -79,12 +125,27 @@ def run(session: Session, user_message: str) -> Iterator[dict[str, Any]]:
     if not session.history or session.history[0]["role"] != "system":
         session.history.insert(0, {"role": "system", "content": SYSTEM_PROMPT})
     session.history.append({"role": "user", "content": user_message})
-    yield emit({"type": "user", "content": user_message})
+    session.save()
+    # The settings are part of the trace, so runs stay comparable across models.
+    yield emit({"type": "user", "content": user_message, "model": model,
+                "max_steps": max_steps, "temperature": temperature})
 
     try:
-        for _ in range(settings.agent_max_steps):
-            message = llm.complete(session.history, openai_schema())
+        for step in range(1, max_steps + 1):
+            schema = openai_schema()
+            yield emit({"type": "llm_request", "step": step, "model": model,
+                        "temperature": temperature,
+                        "total_messages": len(session.history),
+                        "new_messages": _new_messages(session.history),
+                        "tools": [t["function"]["name"] for t in schema]})
+            call_started = time.monotonic()
+            response = llm.complete(session.history, schema, model, temperature)
+            message = response.choices[0].message
+            yield emit({"type": "llm_response", "step": step,
+                        "duration_s": round(time.monotonic() - call_started, 1),
+                        **_response_details(response, message)})
             session.history.append(_assistant_to_dict(message))
+            session.save()
 
             tool_calls = getattr(message, "tool_calls", None)
             if not tool_calls:
@@ -109,12 +170,17 @@ def run(session: Session, user_message: str) -> Iterator[dict[str, Any]]:
                     "tool_call_id": tc.id,
                     "content": result.summary,
                 })
+                session.save()
         else:
             yield emit({"type": "assistant_message",
                         "content": "Reached the maximum number of steps for this task."})
     except Exception as exc:
+        _close_open_tool_calls(session)
+        session.save()
         yield emit({"type": "error", "message": str(exc)})
     except GeneratorExit:  # browser closed the stream (reload, tab closed)
+        _close_open_tool_calls(session)
+        session.save()
         emit({"type": "aborted"})
         raise
     yield emit({"type": "done"})

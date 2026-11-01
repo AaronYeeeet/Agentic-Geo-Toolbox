@@ -62,7 +62,9 @@ def add_wms_layer(session: Session, url: str, layers: str, name: str | None = No
         "tile_url": tile_url,
         "attribution": url,
     }
+    descriptor = session.add_raster(descriptor)  # persisted with the session
     return ToolResult(
-        summary=f"Added WMS layer(s) '{layers}' from {url} as a raster overlay.",
+        summary=f"Added WMS layer(s) '{layers}' from {url} as a raster overlay "
+                f"'{descriptor['id']}'.",
         layers=[descriptor],
     )

@@ -81,5 +81,8 @@ def main(offline: bool) -> None:
 
 
 if __name__ == "__main__":
-    main(offline="--offline" in sys.argv)
+    try:
+        main(offline="--offline" in sys.argv)
+    finally:
+        store.delete(session.id)  # sessions are saved to disk; don't list test runs as chats
     sys.exit(1 if failures else 0)

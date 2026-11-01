@@ -7,12 +7,30 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 ENV_FILE = Path(__file__).resolve().parent.parent / ".env"
 
-# Export every .env entry to os.environ, so LiteLLM finds whatever provider key
-# is set there (GEMINI_API_KEY, GROQ_API_KEY, ANTHROPIC_API_KEY, ...). Empty
-# values are skipped: `KEY=` would otherwise count as "key present".
-for _key, _value in dotenv_values(ENV_FILE).items():
-    if _value and _key not in os.environ:
-        os.environ[_key] = _value
+# Keys that came from .env (not from the shell), so a later reload may update them.
+_from_env_file: set[str] = set()
+
+
+def load_env_keys() -> None:
+    """Export every .env entry to os.environ, so LiteLLM finds whatever provider
+    key is set there (GEMINI_API_KEY, OPENROUTER_API_KEY, ...).
+
+    Called again before listing models and before each chat, so a key added to
+    .env works without a restart (`uvicorn --reload` only watches .py files).
+    Empty values are skipped: `KEY=` would otherwise count as "key present".
+    Variables set in the shell win over .env.
+    """
+    values = dotenv_values(ENV_FILE)
+    for key, value in values.items():
+        if value and (key not in os.environ or key in _from_env_file):
+            os.environ[key] = value
+            _from_env_file.add(key)
+    for key in [k for k in _from_env_file if not values.get(k)]:  # emptied or removed
+        os.environ.pop(key, None)
+        _from_env_file.discard(key)
+
+
+load_env_keys()
 
 
 class Settings(BaseSettings):
