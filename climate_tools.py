@@ -31,6 +31,15 @@ TERRAIN_Z = 14   # ca. 6 m Pixel; die Quelldaten (EU-DEM/SRTM) sind aber nur ca.
 TERRAIN_CACHE = os.path.join(geo_tools.CACHE_DIR, "terrain")
 ONLINE_TIMEOUT = 12  # Sekunden: lieber schnell auf lokale Daten ausweichen als lange warten
 
+# DGM1 Hessen: Laserscan-Geländemodell 1 m (HVBG, INSPIRE-WCS, Datenlizenz Deutschland Zero 2.0, frei nutzbar)
+DGM1_WCS = "https://inspire-hessen.de/raster/dgm1/ows"
+DGM1_EXTENT = (411000, 5471000, 587000, 5724000)   # ganz Hessen, EPSG:25832
+DGM1_CACHE = os.path.join(geo_tools.CACHE_DIR, "dgm1")
+DGM1_TIMEOUT = 25
+DGM1_CELL = 4          # Rechenraster in m (feiner wird die Senkenrechnung in reinem Python zu langsam)
+BUILDING_BURN_M = 10   # Gebäude werden so viel ins Gelände "eingebrannt": Wasser fließt um sie herum
+MIN_POND_M2 = 100      # kleinere Wasserflächen gelten als Pfütze (Gullys) und werden nicht gezählt/gezeigt
+
 # Bodenbedeckung: Name, Versiegelung (0..1), Abflussbeiwert bei Starkregen, Oberfläche an Sommernachmittag (°C)
 COVER = {
     0: ("unbekannt", 0.35, 0.45, 38),
@@ -370,6 +379,47 @@ def _dem(g):
             + wy * ((1 - wx) * mosaic[iy + 1, ix] + wx * mosaic[iy + 1, ix + 1]))
 
 
+def _dgm1(g):
+    """Geländehöhe je Zelle aus dem DGM1 Hessen (WCS, 2-m-Stufe, bilinear = Mittel auf 4 m). Cache je Ausschnitt."""
+    cell, left, top, n = g["cell"], g["left"], g["top"], g["n"]
+    right, bottom = left + n * cell, top - n * cell
+    e0, e1 = math.floor(left) - 4, math.ceil(right) + 4
+    n0, n1 = math.floor(bottom) - 4, math.ceil(top) + 4
+    ex = DGM1_EXTENT
+    if not (ex[0] <= e0 and e1 <= ex[2] and ex[1] <= n0 and n1 <= ex[3]):
+        raise ValueError("Gebiet liegt nicht (ganz) in Hessen")
+    coverage = "he_dgm1" if cell < 2 else "he_dgm1_2"
+    url = (f"{DGM1_WCS}?SERVICE=WCS&VERSION=2.0.1&REQUEST=GetCoverage&COVERAGEID={coverage}"
+           f"&SUBSET=E({e0},{e1})&SUBSET=N({n0},{n1})&FORMAT=image/tiff")
+    os.makedirs(DGM1_CACHE, exist_ok=True)
+    path = os.path.join(DGM1_CACHE, hashlib.sha1(url.encode()).hexdigest()[:16] + ".tif")
+    if not os.path.exists(path):
+        req = urllib.request.Request(url, headers={"User-Agent": "uni-qgis-prototype"})
+        with urllib.request.urlopen(req, timeout=DGM1_TIMEOUT) as r:
+            data = r.read()
+        if data[:2] not in (b"II", b"MM"):
+            raise RuntimeError(f"WCS lieferte kein GeoTIFF: {data[:150]!r}")
+        with open(path, "wb") as f:
+            f.write(data)
+    im = Image.open(path)
+    a = np.asarray(im, dtype=np.float64)
+    tx, ty = im.tag_v2[33922][3:5]          # obere linke Ecke
+    rx, ry = im.tag_v2[33550][:2]           # Pixelgröße
+    nodata = float(im.tag_v2.get(42113, -9999))
+    a[(a == nodata) | (a < -1000)] = np.nan
+    if np.isnan(a).all():
+        raise RuntimeError("DGM1-Ausschnitt ist leer")
+    if np.isnan(a).any():
+        a[np.isnan(a)] = np.nanmedian(a)
+    X, Y = np.meshgrid(g["xc"], g["yc"])
+    fx, fy = (X - tx) / rx - 0.5, (ty - Y) / ry - 0.5
+    ix = np.clip(np.floor(fx).astype(int), 0, a.shape[1] - 2)
+    iy = np.clip(np.floor(fy).astype(int), 0, a.shape[0] - 2)
+    wx, wy = np.clip(fx - ix, 0, 1), np.clip(fy - iy, 0, 1)
+    return ((1 - wy) * ((1 - wx) * a[iy, ix] + wx * a[iy, ix + 1])
+            + wy * ((1 - wx) * a[iy + 1, ix] + wx * a[iy + 1, ix + 1]))
+
+
 # ---------- Wasser: Fließwege und Senken ----------
 def _priority_flood(dem, eps=1e-4):
     """Senken füllen (Priority-Flood). Liefert gefülltes Gelände, Abflussziel je Zelle (parent, -1 = verlässt
@@ -473,6 +523,20 @@ def _water_depth(dem, filled, label, stored, cell_area):
     return depth
 
 
+def _drop_puddles(depth, cell_area, min_depth=0.1):
+    """Wasserflächen (ab min_depth) kleiner als MIN_POND_M2 entfernen: Pfützen an Hauswänden oder in Mulden,
+    die in der Realität über Gullys abfließen. Ändert nur die Darstellung/Zählung, nicht die Wasserbilanz."""
+    lab, k = _label(depth >= min_depth)
+    if not k:
+        return depth
+    sizes = np.bincount(lab[lab >= 0], minlength=k) * cell_area
+    small = np.zeros(depth.shape, bool)
+    small[lab >= 0] = sizes[lab[lab >= 0]] < MIN_POND_M2
+    out = depth.copy()
+    out[small] = 0
+    return out
+
+
 def _accumulate(vals, parent, order):
     acc = vals.ravel().astype(float).tolist()
     for i in reversed(order):
@@ -486,26 +550,40 @@ DEPTH_CLASSES = [(0.1, 0.3, "#9ecae1", "10-30 cm"), (0.3, 0.5, "#4292c6", "30-50
 
 
 def starkregen(lat, lon, radius_m=50, massnahme="versiegeln", niederschlag_mm=50, kanal_mm=10,
-               gebiet_m=1000, prefix="starkregen"):
+               gebiet_m=1000, prefix="starkregen", gebaeude_hindernis=True):
     """Starkregen vorher/nachher: Fläche (Kreis radius_m um lat/lon) wird versiegelt/entsiegelt.
     niederschlag_mm: Regen in 1 h (50 mm ~ seltener Starkregen, ca. 100-jährlich in Südhessen),
-    kanal_mm: was die Kanalisation von versiegelten Flächen aufnimmt, gebiet_m: halbe Kantenlänge."""
+    kanal_mm: was die Kanalisation von versiegelten Flächen aufnimmt, gebiet_m: halbe Kantenlänge,
+    gebaeude_hindernis: Gebäude ins Gelände einbrennen (nur mit feinem DGM1)."""
     warnings = []
-    gebiet_m = int(round(gebiet_m / 10) * 10)
-    g5, g10 = _grid(lat, lon, gebiet_m, 5), _grid(lat, lon, gebiet_m, 10)
-    polys, lines, quelle = _osm_shapes(g5["bbox"], warnings)
-    lc = _land_cover(g5, polys, lines, [])
-    mask5 = _circle(g5, radius_m)
+    gebiet_m = int(round(gebiet_m / 20) * 20)
+    # Gelände: DGM1 Hessen auf 4-m-Raster; sonst (außerhalb Hessens / Dienst weg) grobe Terrain-Kacheln auf 10 m
+    g = _grid(lat, lon, gebiet_m, DGM1_CELL)
+    try:
+        dem = _dgm1(g)
+        dem_quelle = (f"Geländemodell: DGM1 Hessen (HVBG, Laserscan, Datenlizenz Deutschland Zero 2.0), "
+                      f"Rechenraster {DGM1_CELL} m")
+    except Exception as err:
+        warnings.append(f"DGM1 Hessen nicht verfügbar ({str(err)[:100]}); grobes Höhenmodell (25-30 m) genutzt.")
+        g = _grid(lat, lon, gebiet_m, 10)
+        dem = _dem(g)
+        dem_quelle = "Höhenmodell: AWS Terrain Tiles (EU-DEM/SRTM, ca. 25-30 m Auflösung), Rechenraster 10 m"
+    cell, n = g["cell"], g["n"]
+    gf = _grid(lat, lon, gebiet_m, cell / 2)   # Bodenbedeckung doppelt so fein, dann gemittelt
+    polys, lines, quelle = _osm_shapes(gf["bbox"], warnings)
+    lc = _land_cover(gf, polys, lines, [])
+    mask_f = _circle(gf, radius_m)
     cls_b = lc["cls"]
-    cls_a, _ = _apply(cls_b, lc["canopy"], mask5, massnahme)
+    cls_a, _ = _apply(cls_b, lc["canopy"], mask_f, massnahme)
+    fine_area = gf["cell"] ** 2
 
-    n10 = g10["n"]
+    def agg(a):  # feines Raster -> Rechenraster
+        return a.reshape(n, 2, n, 2).mean(axis=(1, 3))
 
-    def agg(a):  # 5 m -> 10 m
-        return a.reshape(n10, 2, n10, 2).mean(axis=(1, 3))
-
-    area = g10["cell"] ** 2
-    dem = _dem(g10)
+    area = cell ** 2
+    burned = gebaeude_hindernis and cell <= 5
+    if burned:  # Zellen, die überwiegend Gebäude sind, werden zum Hindernis
+        dem = dem + BUILDING_BURN_M * (agg((cls_b == 9).astype(float)) >= 0.5)
     filled, parent, order = _priority_flood(dem)
     cap = filled - dem
     label, ncomp = _label(cap > 0.02)
@@ -516,15 +594,15 @@ def starkregen(lat, lon, radius_m=50, massnahme="versiegeln", niederschlag_mm=50
         runoff_mm = np.clip(agg(RUNOFF[cls]) * niederschlag_mm - kanal_mm * agg(SEAL[cls]), 0, None)
         vol = runoff_mm / 1000 * area
         flow, stored, out = _route(vol, parent, order, label, capacity)
-        depth = _water_depth(dem, filled, label, stored, area)
+        depth = _drop_puddles(_water_depth(dem, filled, label, stored, area), area)
         results[key] = {"vol": vol, "stored": stored, "out": out, "depth": depth}
     b, a = results["vorher"], results["nachher"]
-    name_of = _namer(lc["roads"], g10)
+    name_of = _namer(lc["roads"], g)
 
     # Fließwege (Einzugsgebiet ab 3 ha) und der Weg des Wassers ab der Maßnahme
     contrib = _accumulate(np.full(dem.shape, area), parent, order)
-    nx = n10
-    xc, yc = g10["xc"], g10["yc"]
+    nx = n
+    xc, yc = g["xc"], g["yc"]
 
     def seg(i):
         p = parent[i]
@@ -541,7 +619,7 @@ def starkregen(lat, lon, radius_m=50, massnahme="versiegeln", niederschlag_mm=50
                 "_popup": f"<b>{label_ha}</b><br>Hierhin fließt Oberflächenwasser zusammen"}))
 
     # Weg des Wassers: ab dem Rand der Fläche bergab, endet in der ersten Senke, die nicht überläuft
-    site_mask = _circle(g10, max(radius_m, 10)).ravel()
+    site_mask = _circle(g, max(radius_m, 10)).ravel()
     lab_flat = label.ravel()
     full = a["stored"] >= capacity - 0.5 if ncomp else np.zeros(0, bool)
     path, seen = [], set()
@@ -554,10 +632,10 @@ def starkregen(lat, lon, radius_m=50, massnahme="versiegeln", niederschlag_mm=50
             if parent[i] >= 0 and not site_mask[parent[i]]:
                 path.append(seg(i))
             i = parent[i]
-    site = Point(g10["x0"], g10["y0"])
+    site = Point(g["x0"], g["y0"])
     massnahme_feats = [_feature(site.buffer(radius_m, 32), {
         "name": "Maßnahme", "_style": {"color": "#000000", "fillColor": "#ff7f00", "fillOpacity": 0.4, "weight": 2},
-        "_popup": f"<b>{MASSNAHMEN[massnahme]}</b><br>ca. {round(mask5.sum() * 25)} m²"})]
+        "_popup": f"<b>{MASSNAHMEN[massnahme]}</b><br>ca. {round(mask_f.sum() * fine_area)} m²"})]
     if path:
         massnahme_feats.append(_feature(shapely.line_merge(shapely.union_all(path)), {
             "name": "Weg des Wassers ab der Fläche", "_style": {"color": "#e31a1c", "weight": 4, "dashArray": "8 6"},
@@ -566,12 +644,12 @@ def starkregen(lat, lon, radius_m=50, massnahme="versiegeln", niederschlag_mm=50
     # Wassertiefe nachher (Klassen) und zusätzliches Wasser
     water_feats = []
     for lo, hi, color, text in DEPTH_CLASSES:
-        geom = _cells_geom((a["depth"] >= lo) & (a["depth"] < hi), g10)
+        geom = _cells_geom((a["depth"] >= lo) & (a["depth"] < hi), g)
         if geom is not None:
             water_feats.append(_feature(geom, {"name": f"Wasser {text}", "_style": {
                 "color": color, "fillColor": color, "fillOpacity": 0.6, "weight": 0},
                 "_popup": f"<b>Wassertiefe {text}</b><br>Senke, in der sich Regenwasser sammelt (nach der Maßnahme)"}))
-    more = _cells_geom(a["depth"] - b["depth"] >= 0.02, g10)
+    more = _cells_geom(a["depth"] - b["depth"] >= 0.02, g)
     more_feats = [_feature(more, {"name": "mehr Wasser", "_style": {
         "color": "#e31a1c", "fillColor": "#e31a1c", "fillOpacity": 0.25, "weight": 2},
         "_popup": "<b>Hier steht durch die Maßnahme mindestens 2 cm mehr Wasser</b>"})] if more is not None else []
@@ -586,7 +664,7 @@ def starkregen(lat, lon, radius_m=50, massnahme="versiegeln", niederschlag_mm=50
         r, c = np.nonzero(cells)
         x, y = xc[c].mean(), yc[r].mean()
         senken.append({
-            "ort": name_of(x, y), "entfernung_m": round(math.hypot(x - g10["x0"], y - g10["y0"])),
+            "ort": name_of(x, y), "entfernung_m": round(math.hypot(x - g["x0"], y - g["y0"])),
             "zusaetzliches_wasser_m3": round(extra),
             "max_tiefe_cm": {"vorher": round(100 * b["depth"][cells].max()), "nachher": round(100 * a["depth"][cells].max())},
             "flaeche_ueber_10cm_m2": {"vorher": int((b["depth"][cells] >= 0.1).sum() * area),
@@ -598,8 +676,8 @@ def starkregen(lat, lon, radius_m=50, massnahme="versiegeln", niederschlag_mm=50
         hits = []
         for geom, name, kind in lc["buildings"]:
             minx, miny, maxx, maxy = geom.bounds
-            c0, c1 = max(0, int((minx - g10["left"]) // 10) - 1), min(nx, int((maxx - g10["left"]) // 10) + 2)
-            r0, r1 = max(0, int((g10["top"] - maxy) // 10) - 1), min(nx, int((g10["top"] - miny) // 10) + 2)
+            c0, c1 = max(0, int((minx - g["left"]) // cell) - 1), min(nx, int((maxx - g["left"]) // cell) + 2)
+            r0, r1 = max(0, int((g["top"] - maxy) // cell) - 1), min(nx, int((g["top"] - miny) // cell) + 2)
             if c0 < c1 and r0 < r1 and depth[r0:r1, c0:c1].max() >= 0.1:
                 hits.append((geom, name, kind, depth[r0:r1, c0:c1].max()))
         return hits
@@ -616,11 +694,12 @@ def starkregen(lat, lon, radius_m=50, massnahme="versiegeln", niederschlag_mm=50
 
     # sensible Einrichtungen im Wasser
     einrichtungen = []
-    for lon_, lat_, tags in _points(SENSITIVE, g10["bbox"], warnings):
+    for lon_, lat_, tags in _points(SENSITIVE, g["bbox"], warnings):
         x, y = TO_UTM.transform(lon_, lat_)
-        c, r = int((x - g10["left"]) // 10), int((g10["top"] - y) // 10)
+        c, r = int((x - g["left"]) // cell), int((g["top"] - y) // cell)
         if 0 <= r < nx and 0 <= c < nx:
-            win = (slice(max(r - 2, 0), r + 3), slice(max(c - 2, 0), c + 3))
+            w = max(1, round(10 / cell))  # ca. 10 m um die Einrichtung
+            win = (slice(max(r - w, 0), r + w + 1), slice(max(c - w, 0), c + w + 1))
             if a["depth"][win].max() >= 0.1:
                 kind = tags.get("amenity", "")
                 einrichtungen.append({"name": tags.get("name") or KIND_DE.get(kind, kind), "art": KIND_DE.get(kind, kind),
@@ -634,8 +713,8 @@ def starkregen(lat, lon, radius_m=50, massnahme="versiegeln", niederschlag_mm=50
         "massnahme": _write_geojson(_out(f"{prefix}_massnahme.geojson"), massnahme_feats),
         "gebaeude": _write_geojson(_out(f"{prefix}_gebaeude.geojson"), bld_feats),
     }
-    in_site = mask5
-    before_mix = {COVER[k][0]: round(int((cls_b[in_site] == k).sum()) * 25) for k in np.unique(cls_b[in_site])}
+    in_site = mask_f
+    before_mix = {COVER[k][0]: round(int((cls_b[in_site] == k).sum()) * fine_area) for k in np.unique(cls_b[in_site])}
     extra_runoff = float((a["vol"] - b["vol"]).sum())
 
     def ha(depth, t):
@@ -643,7 +722,7 @@ def starkregen(lat, lon, radius_m=50, massnahme="versiegeln", niederschlag_mm=50
 
     return {
         "files": files,
-        "massnahme": MASSNAHMEN[massnahme], "flaeche_m2": round(int(in_site.sum()) * 25),
+        "massnahme": MASSNAHMEN[massnahme], "flaeche_m2": round(int(in_site.sum()) * fine_area),
         "flaeche_vorher_m2": before_mix,
         "regen": f"{niederschlag_mm} mm in 1 h, Kanalisation nimmt {kanal_mm} mm von versiegelten Flächen auf",
         "zusaetzlicher_oberflaechenabfluss_m3": round(extra_runoff),
@@ -658,12 +737,14 @@ def starkregen(lat, lon, radius_m=50, massnahme="versiegeln", niederschlag_mm=50
                                         "neu_betroffen": sum(1 for h in wet_a if id(h[0]) not in before_ids)},
         "sensible_einrichtungen_im_wasser": einrichtungen[:10],
         "gelaende_hoehe_m": {"min": round(float(dem.min()), 1), "max": round(float(dem.max()), 1),
-                             "an_der_flaeche": round(float(dem[n10 // 2, n10 // 2]), 1)},
-        "datenquellen": [quelle, "Höhenmodell: AWS Terrain Tiles (EU-DEM/SRTM, ca. 25-30 m Auflösung)"],
+                             "an_der_flaeche": round(float(dem[n // 2, n // 2]), 1)},
+        "datenquellen": [quelle, dem_quelle] + (["Gebäude als Hindernisse ins Gelände eingebrannt"] if burned else []),
         "warnungen": warnings,
         "hinweis": "Grobe Senken- und Fließweganalyse (GIS-Methode wie in Starkregen-Hinweiskarten), keine "
-                   "hydrodynamische Simulation: keine Fließgeschwindigkeit/Zeit, Gebäude sind keine Hindernisse, "
-                   "Kanalisation pauschal, Höhenmodell grob (Bordsteine, Unterführungen, Mauern fehlen).",
+                   "hydrodynamische Simulation: keine Fließgeschwindigkeit/Zeit, Kanalisation pauschal (Innenhöfe ohne "
+                   "Abfluss können zu nass erscheinen). " + ("Gelände aus 1-m-Laserscan, auf 4 m gemittelt "
+                   "(schmale Bordsteine/Mauern teils geglättet)." if burned else
+                   "Höhenmodell grob (Bordsteine, Unterführungen, Mauern fehlen), Gebäude sind keine Hindernisse."),
     }
 
 

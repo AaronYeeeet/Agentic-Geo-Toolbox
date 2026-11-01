@@ -55,7 +55,9 @@ Maßnahmen (Kreisfläche um den geocodierten Punkt, `radius_m`; Gebäude bleiben
 
 Vereinfachte Senken- und Fließweganalyse. So ähnlich arbeiten viele kommunale Starkregen-Hinweiskarten als erste Stufe, bevor hydrodynamisch gerechnet wird.
 
-1. **Höhenmodell:** AWS Terrain Tiles (frei, kein Key, Kacheln im Cache `output/cache/terrain/`). In Europa steckt EU-DEM/SRTM dahinter, also ca. **25–30 m echte Auflösung**. Interpoliert auf ein 10-m-Raster.
+1. **Höhenmodell** (seit 01.11.2026, siehe Abschnitt "Update: DGM1 Hessen"):
+   - In Hessen: **DGM1 Hessen** (Laserscan-Geländemodell der HVBG), auf 4 m gemittelt. Gebäude werden als Hindernisse +10 m eingebrannt. Wasserflächen unter 100 m² gelten als Pfütze.
+   - Sonst / Dienst nicht erreichbar: AWS Terrain Tiles (EU-DEM/SRTM, ca. **25–30 m**) auf 10 m, mit Warnung im Ergebnis.
 2. **Abfluss je Zelle:** Regen (Standard 50 mm in 1 h, grob ein 100-jährliches Ereignis in Südhessen) × Abflussbeiwert, minus pauschal 10 mm, die die Kanalisation von versiegelten Flächen aufnimmt.
 3. **Senken füllen** (Priority-Flood) ergibt Fließrichtungen und Senken samt Fassungsvermögen.
 4. **Wasser bergab weitergeben:** Senken füllen sich bis zum Rand, der Überschuss läuft weiter (oberliegende Senken zuerst). Wasser am Rand verlässt das Gebiet.
@@ -140,13 +142,50 @@ Mögliche Verbesserung: Bei Starkregen absolute Wassertiefen "vorher" nur mit Wa
 | Hitze | **machbar**, mit Spanne und Hinweis auf Datenlücken | braucht Baumkataster + UMEP/SOLWEIG (Stufe 2) |
 | Starkregen | **eingeschränkt machbar**: Richtung und Mehrmenge ja, Überflutungsflächen nein | braucht DGM1 + 2D-Modell (Stufe 2) oder die vorhandene Starkregen-Gefahrenkarte der Stadt |
 
+## Update: DGM1 Hessen (01.11.2026, Branch `aaron-proto-dgm1`)
+
+Erster Schritt Richtung "richtige Simulation": das genaue Geländemodell statt des groben Satellitenmodells.
+
+**Datenquelle:** INSPIRE-Download-Dienst (WCS 2.0.1) der HVBG, `https://inspire-hessen.de/raster/dgm1/ows`
+
+- Ganz Hessen, Laserscan, 1 m (`he_dgm1`) und gröbere Stufen 2/4/8/16/32 m (`he_dgm1_2` …), Datenstand 2025 H2
+- **Lizenz: Datenlizenz Deutschland – Zero – 2.0**, also frei nutzbar, keine Gebühren, keine Namensnennung nötig
+- Kein Key, GeoTIFF direkt per URL. 500 × 500 m in 1 m sind ca. 1 MB in 0,4 s, 2 × 2 km in 2 m ca. 4 MB in 1–2 s
+- Cache in `output/cache/dgm1/`, danach offline
+
+**Umsetzung** (`climate_tools._dgm1`):
+
+- 2-m-Stufe laden, bilinear auf ein 4-m-Rechenraster.
+- Gebäudezellen (≥ 50 % Gebäude nach OSM) +10 m: Wasser fließt um Gebäude herum und staut sich davor.
+- Wasserflächen unter 100 m² (`MIN_POND_M2`) ausblenden. Mit dem feinen Gelände entstehen sonst über 1.000 Mini-Pfützen an Hauswänden, die real über Gullys abfließen.
+- Rückfall auf AWS-Kacheln mit Warnung, falls außerhalb Hessens oder der Dienst nicht antwortet (25 s Timeout).
+
+**Vergleich** am Herrngarten (versiegeln, r = 40 m; Karten in `output/ergebnisse/2026-11-01_13-03-27_vergleich_dgm1_herrngarten/`):
+
+| | Alt (AWS 30 m, 10-m-Raster) | DGM1 + Gebäude + Pfützenfilter (4 m) |
+|---|---|---|
+| Fläche ab 10 cm / ab 30 cm (2 × 2 km) | 16,4 / 9,3 ha | **11,4 / 4,2 ha** |
+| große Wasserflächen > 5.000 m² | 12 (14 ha) | 2 (ca. 1 ha) |
+| Gebäude mit Wasser ab 10 cm | 224 | 990 |
+| Wasser von der Fläche fließt in Senke | Schloßgartenstraße (134 m) | Frankfurter Straße (55 m) |
+| Laufzeit | 2,5 s | 3,8 s |
+
+**Bewertung:**
+
+- Die großen Artefakt-Seen des groben Modells sind weg. Die Flächen ab 30 cm halbieren sich, und die Fließwege folgen jetzt Straßen statt geglätteten Hängen.
+- Dafür zeigt das feine Gelände viele kleinere echte Mulden, z.B. eine ca. 3,5 m tiefe Senke an der Heinrich-Hoffmann-Schule. Deshalb sind deutlich mehr Gebäude "nass". Ob 990 realistisch ist, lässt sich nur mit einer Referenz klären (Starkregen-Gefahrenkarte der Stadt, BKG-Hinweiskarte).
+- Weiterhin ohne Kanalnetz (pauschal 10 mm), ohne Zeit/Geschwindigkeit. Abgeschlossene Innenhöfe können zu nass erscheinen.
+- Feiner als 4 m ist mit der reinen Python-Senkenrechnung zu langsam (1 m auf 2 × 2 km wären 4 Mio. Zellen). Für 1–2 m braucht es ein kompiliertes Werkzeug (z.B. LISFLOOD-FP, siehe unten).
+
+**Nächster Schritt:** Pilot mit LISFLOOD-FP auf demselben DGM1-Ausschnitt und Abgleich mit einer vorhandenen Starkregen-Gefahrenkarte.
+
 ## Nächste Schritte (Stufe 2)
 
 Bessere Daten (größter Hebel, wenig Code):
 
 | Daten | Wofür | Hinweis |
 |---|---|---|
-| **DGM1 Hessen** (HVBG, 1-m-Geländemodell) | Starkregen | Bezugsweg und Lizenz bei der HVBG prüfen. 1-km-Kacheln, in `_dem()` statt der AWS-Kacheln einlesen |
+| **DGM1 Hessen** (HVBG, 1-m-Geländemodell) | Starkregen | **erledigt** (siehe Update oben): frei per WCS, Datenlizenz Zero |
 | **Baumkataster Darmstadt** | Hitze | Bei der Stadt nachfragen (Open-Data-Portal?), alternativ Copernicus *Street Tree Layer* / *Tree Cover Density* |
 | **Copernicus HRL Imperviousness** (10 m) | beide | Versiegelungsgrad als Raster, ergänzt/prüft die OSM-Klassifizierung |
 | **Starkregen-Gefahrenkarte** (Stadt Darmstadt / HLNUG) | Starkregen | Zur Plausibilitätsprüfung unserer Senken, ggf. als Hintergrund-Layer |
