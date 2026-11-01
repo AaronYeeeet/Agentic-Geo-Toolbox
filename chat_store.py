@@ -43,6 +43,7 @@ def save(chat_id, agent, turns):
         "created": old.get("created") or time.strftime("%Y-%m-%d %H:%M:%S"),
         "updated": time.strftime("%Y-%m-%d %H:%M:%S"),
         "model": agent.label,
+        "skills": getattr(agent, "skills", True),  # Modus: eigene Analyse-Skills an/aus
         "turns": turns,
         "llm_state": state,
     }

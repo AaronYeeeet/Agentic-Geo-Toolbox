@@ -19,6 +19,7 @@ from google.genai import errors, types
 
 import annahmen as annahmen_mod
 import climate_tools
+import datenquellen
 import geo_tools
 import impact_tools
 import ladeinfra_tools
@@ -36,18 +37,47 @@ PRESETS = {
 DEFAULT_PRESET = "gemma"
 GEMINI_MODEL = PRESETS["gemma"][1]
 OPENROUTER_MODEL = PRESETS["nemotron"][1]
-MAX_STEPS = 25  # Sicherheitsgrenze: max. Tool-Runden pro Frage
+MAX_STEPS = 30  # Sicherheitsgrenze: max. Tool-Runden pro Frage
 GEO_EXT = (".geojson", ".gpkg", ".shp", ".csv", ".tif", ".tiff", ".json", ".kml", ".gml")
 
-SYSTEM = f"""Du bist ein Geo-Agent für Mitarbeitende in Kommunen, die keine GIS-Expert:innen sind.
-Du löst räumliche Fragen, indem du Daten holst und QGIS-Algorithmen ausführst.
+SYSTEM_BASIS = """Du bist ein Geo-Agent für Mitarbeitende in Kommunen, die keine GIS-Expert:innen sind.
+Du löst räumliche Fragen, indem du offene Daten holst und bestehende GIS-Werkzeuge (QGIS-Processing, GDAL) ausführst.
 
 Arbeitsweise:
-- Hole Daten mit fetch_osm. Gebiete als bbox [süd, west, nord, ost] in WGS84.
+- Bestimme den Ort zuerst mit geocode (Kreuzungen als "Straße A / Straße B, Stadt").
+- Hole Daten mit datenquelle_abfragen (freie Datenquellen, Liste unten) und fetch_osm (OpenStreetMap-Objekte; Gebiet als bbox [süd, west, nord, ost] in WGS84).
 - Suche passende QGIS-Algorithmen mit list_qgis_algorithms, prüfe Parameter mit qgis_algorithm_help, bevor du ein Werkzeug zum ersten Mal ausführst.
 - Für Abstände/Puffer in Metern vorher nach EPSG:25832 (UTM 32N) umprojizieren; für die Karte am Ende nach EPSG:4326.
 - Zwischenergebnisse immer als Datei speichern (z.B. "puffer.gpkg"), niemals "memory:" oder TEMPORARY_OUTPUT. Relative Dateinamen landen im Ergebnisordner der aktuellen Frage; Dateien aus früheren Fragen werden über ihren Namen gefunden.
-- Zeige Ergebnisse mit make_map (nur GeoJSON in EPSG:4326).
+- Zeige Ergebnisse mit make_map (nur GeoJSON in EPSG:4326). Die Karte hat Luftbild und Liegenschaftskarte Hessen als Hintergrund zum Umschalten."""
+
+SYSTEM_DATEN = f"""Freie Datenquellen (alle ohne API-Key) - Aufruf: datenquelle_abfragen mit quelle, lat, lon, radius_m und ggf. parameter:
+{datenquellen.katalog_text()}
+
+Hinweise zu den Datenquellen:
+- Nutze für eine Frage mehrere passende Quellen und vergleiche sie, typisch:
+  Starkregen/Überflutung: kostra_starkregen (amtliche Regenmengen), hlnug_starkregen (Hinweiskarte, Fließpfade), hlnug_hochwasser, copernicus_versiegelung, hlnug_boden, gelaendehoehe; aktuell: regenradar, unwetterwarnungen.
+  Hitze/Stadtklima: landsat_oberflaechentemperatur, hlnug_hitze, stadtklima_waermeinsel, copernicus_baumbedeckung, copernicus_versiegelung, sentinel2_ndvi, dwd_klimaraster (heisse_tage), klima_projektion.
+  Ladesäulen/Energie: ladesaeulen_register, zensus2022, marktstammdaten, oepnv_haltestellen, erreichbarkeit, fetch_osm ("amenity"="parking", "power"="substation").
+  Baustelle/Verkehr/Lärm: hlnug_laerm, unfallatlas, autobahn, oepnv_haltestellen, oepnv_abfahrten, zensus2022, fetch_osm (Schulen "amenity"="school", Kitas "amenity"="kindergarten").
+  Natur/Bauvorhaben: hlnug_schutzgebiete, schutzgebiete_bund, hlnug_biotope, gbif_arten, hlnug_wasserschutz, hlnug_geologie, hlnug_radon, wikidata (Denkmäler).
+  Luft/Gesundheit: luft_messstationen, luft_modell, buergersensoren_luft, pollenflug, uv_index.
+- Weitere Daten finden: opendata_darmstadt, govdata, geoportal_hessen; laden mit datei_laden, wfs_abfrage, arcgis_abfrage, wms_abfrage.
+- Jedes Ergebnis enthält "quelle" (Anbieter, Lizenz, Stand), eine "zusammenfassung" und ggf. "files" (GeoJSON für make_map oder als Eingabe für QGIS).
+- Liefert eine Quelle einen Fehler, sag das kurz und nimm eine andere. Erfinde keine Werte. Details zu Parametern: datenquellen_katalog."""
+
+SYSTEM_NUR_DATEN = """Modus "Nur Datenquellen": Es gibt KEINE fertigen Analyse-Werkzeuge (kein starkregen, hitze, ladesaeulen, traffic_impact, construction_noise).
+- Beantworte Fragen nur mit Daten aus datenquelle_abfragen und fetch_osm und mit bestehenden QGIS-Algorithmen (z.B. Puffer, Verschneiden, Zonenstatistik, Join by location, Punkte in Polygon zählen).
+- Rechne keine eigenen Modelle im Kopf. Beschreibe, was die Daten zeigen (Werte, Anteile, Vergleiche) und ordne vorsichtig ein.
+  Bei Was-wäre-wenn-Fragen ("wenn wir pflastern", "wenn wir Bäume fällen"): Ist-Zustand aus den Daten zeigen, die Richtung der Änderung mit Begründung aus den Daten nennen, keine erfundenen Zahlen.
+- Beende jede Antwort mit einer Tabelle "Annahmen" (| Annahme | Wert | Einheit | Begründung |) für deine eigenen Festlegungen (Radius, Zeitraum, Schwellen, Auswahl der Quellen)."""
+
+SYSTEM_SCHLUSS = """Am Ende JEDER Antwort, in der du Datenquellen genutzt hast, eine Tabelle "Datenquellen" mit | Quelle | Anbieter | Stand | Lizenz | (aus dem Feld "quelle" der Ergebnisse; OSM: OpenStreetMap, ODbL).
+- Dateien aus Werkzeug-Ergebnissen sind kurze Namen (z.B. "versiegelung_copernicus.geojson"): genau so an make_map übergeben.
+- Antworte in der Sprache der Nutzerin / des Nutzers, kurz und verständlich, und nenne die Zahlen und Annahmen (z.B. Pufferradius), auf denen dein Ergebnis beruht."""
+
+SYSTEM_SKILLS = f"""Eigene Analyse-Werkzeuge (Skills) sind eingeschaltet. Ergänze sie mit passenden Datenquellen
+(z.B. kostra_starkregen für niederschlag_mm, copernicus_baumbedeckung als Prüfung der OSM-Bäume, hlnug_laerm für den heutigen Lärm).
 
 Fragen zu Baustellen / Sperrungen ("Was bedeutet eine Baustelle an X für Lärm und Verkehr?"):
 1. geocode mit dem Ort (Kreuzungen als "Straße A / Straße B, Stadt").
@@ -86,11 +116,46 @@ Annahmen (gilt für traffic_impact, construction_noise, starkregen, hitze, lades
   Beende JEDE Antwort mit einer Markdown-Tabelle "Annahmen" mit den Spalten | Annahme | Wert | Einheit | geändert? |.
   Darin: alle Zeilen mit "wichtig": true und alle mit "geaendert": true (geänderte mit altem Standardwert, z.B. "25 (statt 10)").
   Darunter ein Satz: alle weiteren Annahmen stehen vollständig unter der Antwort und lassen sich ändern.
-- Dateien aus Werkzeug-Ergebnissen sind kurze Namen (z.B. "ladesaeulen_bedarf.geojson"): genau so an make_map übergeben.
+  Nutzt du keines dieser Werkzeuge, gilt stattdessen: Tabelle "Annahmen" mit deinen eigenen Festlegungen (| Annahme | Wert | Einheit | Begründung |)."""
 
-- Antworte in der Sprache der Nutzerin / des Nutzers, kurz und verständlich, und nenne die Zahlen und Annahmen (z.B. Pufferradius), auf denen dein Ergebnis beruht."""
+SKILL_NAMES = ("traffic_impact", "construction_noise", "starkregen", "ladesaeulen", "hitze")
+
+
+def system_prompt(skills=True):
+    """Systemprompt je Modus: mit eigenen Analyse-Skills oder nur Datenquellen + QGIS."""
+    teile = [SYSTEM_BASIS, SYSTEM_DATEN, SYSTEM_SKILLS if skills else SYSTEM_NUR_DATEN, SYSTEM_SCHLUSS]
+    return "\n\n".join(teile)
+
+
+SYSTEM = system_prompt(True)  # für Rückwärtskompatibilität
 
 TOOLS = [
+    {
+        "name": "datenquelle_abfragen",
+        "description": "Fragt eine freie Datenquelle ab (über 50: Wetter, Klima, Starkregen, Hitze, Lärm, Schutzgebiete, Boden, "
+                       "Zensus, Unfälle, ÖPNV, Energie, Satellitenbilder, Open-Data-Kataloge ...; Liste im Systemprompt). "
+                       "Liefert Zusammenfassung, Metadaten (Anbieter, Lizenz, Stand) und ggf. GeoJSON-Dateien für make_map oder QGIS.",
+        "schema": {
+            "type": "object",
+            "properties": {
+                "quelle": {"type": "string", "enum": list(datenquellen.QUELLEN), "description": "ID der Datenquelle"},
+                "lat": {"type": "number"}, "lon": {"type": "number"},
+                "radius_m": {"type": "number", "description": "Umkreis in Metern (ohne Angabe: Standard der Quelle)"},
+                "parameter": {"type": "object", "description": 'Quellen-spezifische Parameter laut Liste, z.B. {"tage": 7}, '
+                                                               '{"jahre": [2023, 2024]} oder {"suche": "Verkehr"}'},
+            },
+            "required": ["quelle"],
+        },
+    },
+    {
+        "name": "datenquellen_katalog",
+        "description": "Details zu den freien Datenquellen (Parameter, Lizenz, Anbieter, Standard-Umkreis), optional gefiltert nach Kategorie oder Stichwort.",
+        "schema": {
+            "type": "object",
+            "properties": {"kategorie": {"type": "string", "description": "z.B. 'Wetter', 'Mobilität', 'Satellit'"},
+                           "suche": {"type": "string", "description": "Stichwort, z.B. 'Lärm' oder 'Bäume'"}},
+        },
+    },
     {
         "name": "fetch_osm",
         "description": "Lädt OpenStreetMap-Objekte (Punkte; Flächen als Mittelpunkt) in einem Gebiet über die Overpass API und speichert sie als GeoJSON (EPSG:4326). Gibt Pfad und Anzahl zurück.",
@@ -239,6 +304,11 @@ for _t in TOOLS:
         _t["schema"]["properties"]["annahmen"] = annahmen_mod.schema(ANNAHMEN_DEFAULTS[_t["name"]])
 
 
+def tools_for(skills=True):
+    """Werkzeuge je Modus: ohne Skills nur Datenquellen, OSM, QGIS, Geocoding und Karte."""
+    return [t for t in TOOLS if skills or t["name"] not in SKILL_NAMES]
+
+
 def _resolve_params(params):
     """Relative Dateinamen in QGIS-Parametern: Ausgaben (OUTPUT...) in den Ergebnisordner der Frage,
     Eingaben dort oder in früheren Ergebnisordnern suchen."""
@@ -250,7 +320,9 @@ def _resolve_params(params):
     return fixed
 
 
-def execute_tool(name, args):
+def execute_tool(name, args, skills=True):
+    if not skills and name in SKILL_NAMES:
+        raise ValueError(f"'{name}' ist im Modus 'Nur Datenquellen' ausgeschaltet. Nutze datenquelle_abfragen und QGIS-Algorithmen.")
     result = _execute_tool(name, args)
     # Kurze Dateinamen statt langer Pfade: das Modell schreibt sie fehlerfrei ab, make_map findet sie im Ergebnisordner
     if isinstance(result, dict) and isinstance(result.get("files"), dict):
@@ -259,6 +331,11 @@ def execute_tool(name, args):
 
 
 def _execute_tool(name, args):
+    if name == "datenquelle_abfragen":
+        return datenquellen.abfragen(args["quelle"], args.get("lat"), args.get("lon"), args.get("radius_m"),
+                                     args.get("parameter"))
+    if name == "datenquellen_katalog":
+        return {"quellen": datenquellen.katalog(args.get("kategorie"), args.get("suche"))}
     if name == "fetch_osm":
         return geo_tools.fetch_osm(args["tag_filter"], tuple(args["bbox"]), geo_tools.out_path(args["filename"]))
     if name == "list_qgis_algorithms":
@@ -312,11 +389,11 @@ def _with_retry(call, is_retryable, attempts=6):
             time.sleep(wait)
 
 
-def _run_tool(name, args):
+def _run_tool(name, args, skills=True):
     yield {"type": "tool_call", "name": name, "args": args}
     start = time.time()
     try:
-        result = {"result": execute_tool(name, args)}
+        result = {"result": execute_tool(name, args, skills)}
     except Exception as err:
         result = {"error": str(err)}
     yield {"type": "tool_result", "name": name, "result": result, "seconds": time.time() - start}
@@ -408,26 +485,40 @@ class BaseAgent:
 
 
 class GeminiAgent(BaseAgent):
-    def __init__(self, api_key, model=GEMINI_MODEL):
+    def __init__(self, api_key, model=GEMINI_MODEL, skills=True):
         self.label = f"gemini / {model}"
         self.choice = f"gemini:{model}"  # Schlüssel für model_choices / create_agent
         self.model = model
+        self.skills = skills
         super().__init__()
-        self.config = types.GenerateContentConfig(
-            system_instruction=SYSTEM,
-            tools=[types.Tool(function_declarations=[
-                types.FunctionDeclaration(name=t["name"], description=t["description"],
-                                          parameters_json_schema=t["schema"])
-                for t in TOOLS])],
-            automatic_function_calling=types.AutomaticFunctionCallingConfig(disable=True),
-            thinking_config=types.ThinkingConfig(include_thoughts=True),  # Denkprozess mitliefern
-        )
+        self.config = self._make_config()
         self.client = genai.Client(api_key=api_key)  # Client behalten, sonst wird er sofort geschlossen
         self.chat = self.client.chats.create(model=model, config=self.config)
 
+    def _make_config(self):
+        return types.GenerateContentConfig(
+            system_instruction=system_prompt(self.skills),
+            tools=[types.Tool(function_declarations=[
+                types.FunctionDeclaration(name=t["name"], description=t["description"],
+                                          parameters_json_schema=t["schema"])
+                for t in tools_for(self.skills)])],
+            automatic_function_calling=types.AutomaticFunctionCallingConfig(disable=True),
+            thinking_config=types.ThinkingConfig(include_thoughts=True),  # Denkprozess mitliefern
+        )
+
+    def set_skills(self, skills):
+        """Modus wechseln (mit/ohne eigene Analyse-Skills), Gesprächsverlauf bleibt erhalten."""
+        if skills == self.skills:
+            return
+        self.skills = skills
+        history = self.chat.get_history()
+        self.config = self._make_config()
+        self.chat = self.client.chats.create(model=self.model, config=self.config, history=history)
+        self._log(f"\n*Modus: {'Skills + Datenquellen' if skills else 'Nur Datenquellen'}*\n")
+
     def export_state(self):
         # model_dump_json kodiert Binärdaten (z.B. thought_signature) korrekt als Base64
-        return {"provider": "gemini", "model": self.model,
+        return {"provider": "gemini", "model": self.model, "skills": self.skills,
                 "history": [json.loads(c.model_dump_json(exclude_none=True)) for c in self.chat.get_history()]}
 
     def import_state(self, state):
@@ -465,7 +556,7 @@ class GeminiAgent(BaseAgent):
                 return
             replies = []
             for call in calls:
-                result = yield from _run_tool(call.name, dict(call.args or {}))
+                result = yield from _run_tool(call.name, dict(call.args or {}), self.skills)
                 replies.append(types.Part.from_function_response(name=call.name, response=result))
             response, secs = yield from self._send(replies)
         yield {"type": "info", "text": f"Abgebrochen nach {MAX_STEPS} Werkzeug-Runden."}
@@ -485,27 +576,40 @@ class GeminiAgent(BaseAgent):
 class OpenRouterAgent(BaseAgent):
     """OpenRouter spricht das OpenAI-Format; darüber sind hunderte Modelle erreichbar (viele mit ':free')."""
 
-    def __init__(self, api_key, model=OPENROUTER_MODEL):
+    def __init__(self, api_key, model=OPENROUTER_MODEL, skills=True):
         self.label = f"openrouter / {model}"
         self.choice = f"openrouter:{model}"
         self.model = model
+        self.skills = skills
         super().__init__()
         self.client = openai.OpenAI(api_key=api_key, base_url="https://openrouter.ai/api/v1", max_retries=0,
                                     default_headers={"X-Title": "Geo-Agent TU Darmstadt"})
+        self._set_tools()
+        self.messages = [{"role": "system", "content": system_prompt(self.skills)}]
+
+    def _set_tools(self):
         self.tools = [{"type": "function", "function": {"name": t["name"], "description": t["description"],
-                                                        "parameters": t["schema"]}} for t in TOOLS]
-        self.messages = [{"role": "system", "content": SYSTEM}]
+                                                        "parameters": t["schema"]}} for t in tools_for(self.skills)]
+
+    def set_skills(self, skills):
+        """Modus wechseln (mit/ohne eigene Analyse-Skills), Gesprächsverlauf bleibt erhalten."""
+        if skills == self.skills:
+            return
+        self.skills = skills
+        self._set_tools()
+        self.messages[0] = {"role": "system", "content": system_prompt(skills)}
+        self._log(f"\n*Modus: {'Skills + Datenquellen' if skills else 'Nur Datenquellen'}*\n")
 
     def export_state(self):
-        return {"provider": "openrouter", "model": self.model, "messages": self.messages[1:]}
+        return {"provider": "openrouter", "model": self.model, "skills": self.skills, "messages": self.messages[1:]}
 
     def import_state(self, state):
         # Systemprompt immer aktuell lassen, nur den Gesprächsverlauf übernehmen
-        self.messages = [{"role": "system", "content": SYSTEM}] + [
+        self.messages = [{"role": "system", "content": system_prompt(self.skills)}] + [
             m for m in state.get("messages", []) if m.get("role") != "system"]
 
     def import_transcript(self, turns):
-        self.messages = [{"role": "system", "content": SYSTEM}]
+        self.messages = [{"role": "system", "content": system_prompt(self.skills)}]
         for turn in turns:
             self.messages += [{"role": "user", "content": turn["prompt"]},
                               {"role": "assistant", "content": self._answer_text(turn)}]
@@ -555,7 +659,7 @@ class OpenRouterAgent(BaseAgent):
                     result = {"error": f"Ungültiges JSON in den Argumenten: {err}"}
                     yield {"type": "tool_result", "name": tc.function.name, "result": result, "seconds": 0.0}
                 else:
-                    result = yield from _run_tool(tc.function.name, args)
+                    result = yield from _run_tool(tc.function.name, args, self.skills)
                 self.messages.append({"role": "tool", "tool_call_id": tc.id,
                                       "content": json.dumps(result, ensure_ascii=False)})
         yield {"type": "info", "text": f"Abgebrochen nach {MAX_STEPS} Werkzeug-Runden."}
@@ -633,9 +737,10 @@ def default_choice():
     return f"{provider}:{model}"
 
 
-def create_agent(preset=None):
+def create_agent(preset=None, skills=True):
     """Baut den Agenten. preset: Kurzname aus PRESETS (z.B. 'gemma'), 'openrouter:<modell-id>' bzw.
-    'gemini:<modell-id>' (aus model_choices), ohne Angabe MODEL aus .env. Wirft ValueError mit verständlicher Meldung."""
+    'gemini:<modell-id>' (aus model_choices), ohne Angabe MODEL aus .env. Wirft ValueError mit verständlicher Meldung.
+    skills=False: Modus 'Nur Datenquellen' (ohne eigene Analyse-Werkzeuge wie hitze/starkregen)."""
     preset = (preset or os.environ.get("MODEL") or DEFAULT_PRESET).strip()
     if preset.split(":", 1)[0] in ("gemini", "openrouter") and ":" in preset:
         provider, model = preset.split(":", 1)
@@ -647,11 +752,11 @@ def create_agent(preset=None):
         key = _key("GEMINI_API_KEY")
         if not key:
             raise ValueError("GEMINI_API_KEY fehlt in .env (Key von aistudio.google.com/apikey).")
-        return GeminiAgent(key, model)
+        return GeminiAgent(key, model, skills)
     key = _key("OPENROUTER_API_KEY")
     if not key:
         raise ValueError("OPENROUTER_API_KEY fehlt in .env (Key von openrouter.ai/keys).")
-    return OpenRouterAgent(key, model)
+    return OpenRouterAgent(key, model, skills)
 
 
 # ---------- Terminal-Version ----------

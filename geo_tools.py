@@ -189,6 +189,37 @@ def run_algorithm(alg_id, params):
     return _json_part(out)["results"]
 
 
+# ---------- GDAL/OGR aus der QGIS-Installation (z.B. Satellitenbilder direkt aus dem Netz lesen, WFS laden) ----------
+QGIS_ROOT = os.environ.get("QGIS_ROOT") or os.path.dirname(os.path.dirname(QGIS_PROCESS))
+
+
+def _gdal_env():
+    env = dict(os.environ)
+    env.update({
+        "PATH": os.path.join(QGIS_ROOT, "bin") + os.pathsep + env.get("PATH", ""),
+        "GDAL_DATA": os.path.join(QGIS_ROOT, "apps", "gdal", "share", "gdal"),
+        "GDAL_DRIVER_PATH": os.path.join(QGIS_ROOT, "apps", "gdal", "lib", "gdalplugins"),
+        "PROJ_DATA": os.path.join(QGIS_ROOT, "share", "proj"),
+        "CURL_CA_BUNDLE": os.path.join(QGIS_ROOT, "bin", "curl-ca-bundle.crt"),
+        "SSL_CERT_FILE": os.path.join(QGIS_ROOT, "bin", "curl-ca-bundle.crt"),
+        "GDAL_HTTP_TIMEOUT": "25", "GDAL_HTTP_MAX_RETRY": "2", "GDAL_HTTP_RETRY_DELAY": "1",
+        "GDAL_DISABLE_READDIR_ON_OPEN": "EMPTY_DIR", "GDAL_HTTP_USERAGENT": "uni-qgis-prototype",
+    })
+    return env
+
+
+def gdal(tool, *args, timeout=120):
+    """Ruft ein GDAL/OGR-Programm der QGIS-Installation auf (gdalwarp, gdal_translate, gdallocationinfo, ogr2ogr ...)."""
+    exe = os.path.join(QGIS_ROOT, "bin", tool + ".exe")
+    if not os.path.exists(exe):
+        raise RuntimeError(f"{tool} nicht gefunden unter {exe} (QGIS_PROCESS bzw. QGIS_ROOT in .env prüfen)")
+    result = subprocess.run([exe, *map(str, args)], env=_gdal_env(), capture_output=True, text=True,
+                            encoding="utf-8", errors="replace", timeout=timeout)
+    if result.returncode != 0:
+        raise RuntimeError(f"{tool} fehlgeschlagen: {(result.stderr or result.stdout).strip()[:600]}")
+    return result.stdout
+
+
 # ---------- Demo-Ablauf (das, was der Agent selbst planen soll) ----------
 def demo():
     bbox = (49.860, 8.630, 49.885, 8.680)  # Darmstadt Innenstadt + Lichtwiese
@@ -253,7 +284,17 @@ def map_html(geojson_paths):
 <style>html,body,#map{{height:100%;margin:0}}</style></head><body><div id="map"></div><script>
 const layers = {json.dumps(layers)};
 const map = L.map('map');
-L.tileLayer('https://tile.openstreetmap.org/{{z}}/{{x}}/{{y}}.png',{{attribution:'© OpenStreetMap'}}).addTo(map);
+// Hintergründe: OSM, basemap.de (BKG) und die freien Dienste der Hessischen Vermessungsverwaltung (HVBG)
+const base = {{
+  'OpenStreetMap': L.tileLayer('https://tile.openstreetmap.org/{{z}}/{{x}}/{{y}}.png',
+    {{attribution: '© OpenStreetMap', maxZoom: 19}}).addTo(map),
+  'basemap.de (grau)': L.tileLayer('https://sgx.geodatenzentrum.de/wmts_basemapde/tile/1.0.0/de_basemapde_web_raster_grau/default/GLOBAL_WEBMERCATOR/{{z}}/{{y}}/{{x}}.png',
+    {{attribution: '© GeoBasis-DE / BKG', maxZoom: 18}}),
+  'Luftbild Hessen 20 cm': L.tileLayer.wms('https://www.gds-srv.hessen.de/cgi-bin/lika-services/ogc-free-images.ows',
+    {{layers: 'he_dop_rgb', format: 'image/jpeg', attribution: '© HVBG Hessen', maxZoom: 20}}),
+  'Liegenschaftskarte Hessen (nah heranzoomen)': L.tileLayer.wms('https://www.gds-srv.hessen.de/cgi-bin/lika-services/ogc-free-maps.ows',
+    {{layers: 'he_alk', format: 'image/png', attribution: '© HVBG Hessen', maxZoom: 20}}),
+}};
 const ctl = {{}}, all = L.featureGroup();
 layers.forEach((l, i) => {{
   // Objekte können eigene Darstellung mitbringen: properties._style (Leaflet-Stil) und _popup (HTML)
@@ -262,7 +303,7 @@ layers.forEach((l, i) => {{
     style: f => f.geometry.type === 'Point' ? {{}} :
       Object.assign({{color: l.color, fillColor: l.color, fillOpacity: 0.2, weight: 2}}, own(f)),
     pointToLayer: (f, ll) => L.circleMarker(ll,
-      Object.assign({{radius: 4 + i, color: 'white', weight: 1, fillColor: l.color, fillOpacity: 1}}, own(f))),
+      Object.assign({{radius: Math.min(4 + i, 8), color: 'white', weight: 1, fillColor: l.color, fillOpacity: 1}}, own(f))),
     onEachFeature: (f, lyr) => lyr.bindPopup((f.properties || {{}})._popup || f.properties.name || '(ohne Name)'),
   }}).addTo(map);
   ctl[`<span style="color:${{l.color}}">●</span> ${{l.name}}`] = g;
@@ -279,7 +320,7 @@ window.addEventListener('resize', () => {{
   w > 0 && lastW === 0 ? fit() : map.invalidateSize();
   lastW = w;
 }});
-L.control.layers(null, ctl, {{collapsed: false}}).addTo(map);
+L.control.layers(base, ctl, {{collapsed: false}}).addTo(map);
 </script></body></html>"""
 
 
