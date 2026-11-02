@@ -6,12 +6,16 @@ Stand 01.11.2026, Branch `aaron-proto-datenquellen`. Code: [datenquellen.py](../
 
 - **59 freie Datenquellen ohne API-Key** sind eingebunden: Wetter und Klima, Starkregen, Hitze, Luft, Wasser, Lärm, Schutzgebiete, Boden, Bevölkerung, Energie, Unfälle, ÖPNV, Satellitenbilder, Wissen sowie Open-Data-Kataloge und beliebige WFS-, WMS- und ArcGIS-Dienste. Dazu kommen wie bisher OpenStreetMap (`fetch_osm`) und QGIS.
 - Der Agent ruft alle Quellen über **ein** Werkzeug auf: `datenquelle_abfragen` (Details über `datenquellen_katalog`). Kleine Modelle müssen also nicht zwischen 60 Werkzeugen wählen.
-- **Selbsttest am Luisenplatz Darmstadt: 58 von 59 Quellen funktionieren**, fast alle in unter 2 s beim ersten Aufruf. Ausgefallen ist der BfN-WFS (der Dienst meldete „under maintenance“).
-- **Schalter in der Seitenleiste „🧩 Eigene Analyse-Skills“:**
-  - **an** = wie bisher (hitze, starkregen, ladesaeulen, traffic_impact, construction_noise) plus alle Datenquellen.
-  - **aus** = Modus **„Nur Datenquellen“**: Der Agent bekommt die selbst gebauten Werkzeuge gar nicht mehr angeboten, sondern nur Daten, OSM und QGIS-Algorithmen.
+- **Selbsttest am Luisenplatz Darmstadt: 58 von 59 Quellen funktionieren**, fast alle in unter 2 s beim ersten Aufruf. Ausgefallen ist der BfN-WFS (der Dienst meldete „under maintenance“). Beim Test am 02.11.2026 liefen alle 59.
+- **Modus-Wahl in der Seitenleiste** (Bereich Einstellungen, „🧩 Mit Skills“ / „📚 Nur Daten“):
+  - **Mit Skills** = wie bisher (hitze, starkregen, ladesaeulen, traffic_impact, construction_noise) plus alle Datenquellen.
+  - **Nur Daten** = Modus **„Nur Datenquellen“**: Der Agent bekommt die selbst gebauten Werkzeuge gar nicht mehr angeboten, sondern nur Daten, OSM und QGIS-Algorithmen.
   - Der Modus wird je Chat gespeichert. Beim Umschalten bleibt der Verlauf erhalten.
-- **Neue Seite „Datenquellen“** mit drei Tabs: Katalog, jede Quelle ohne LLM ausprobieren (mit Karte) und Selbsttest aller Quellen.
+- **Neue Seite „Datenquellen“** mit drei Tabs:
+  - **Doku**: alle Quellen, gruppiert nach Thema, Anbieter, Anbindung oder Art, mit Suche. Ansicht „Tabelle“ zeigt eine Zeile je Quelle mit Kurzbeschreibung und Schlagwörtern. Ansicht „Details“ zeigt je Quelle Links, Dienst-Adressen, Parameter, Aufrufbeispiele (Agent, Python, Kommandozeile) und eine echte Beispielantwort vom Luisenplatz.
+  - **Export** (Knopf auf der Doku-Seite): Markdown, HTML-Seite, PDF, CSV für Excel und JSON. Die Exporte enthalten nur die Quellen, keine Beispielaufrufe oder -antworten. Aufbau von Markdown, HTML und PDF: zuerst die Tabellen aller Kategorien nacheinander, dann je Kategorie die Quellen mit Beschreibung, Links, Dienst-Adressen und Parametern, am Ende wie ein Aufruf funktioniert. Das PDF (A4, ca. 29 Seiten) druckt Edge oder Chrome ohne Fenster aus der HTML-Seite, ein zusätzliches Python-Paket ist nicht nötig. Ohne Oberfläche mit `python datenquellen_doku.py [ordner]`, Code in [datenquellen_doku.py](../datenquellen_doku.py).
+  - **Ausprobieren**: jede Quelle ohne LLM an einem beliebigen Ort abfragen, mit Karte.
+  - **Selbsttest**: alle Quellen aufrufen. Die Antworten werden als Beispiele für die Doku gespeichert (`docs/datenquellen_beispiele.json`, auch über `datenquellen.py beispiele`).
 - **Jede Karte** hat jetzt einen umschaltbaren Hintergrund: OpenStreetMap, basemap.de, Luftbild Hessen (20 cm) und Liegenschaftskarte Hessen.
 - Unter jeder Antwort steht eine Tabelle **„Genutzte Datenquellen“** mit Anbieter, Stand, Lizenz und Link. Sie wird direkt aus den Ergebnissen erzeugt, nicht vom Modell abgeschrieben.
 
@@ -159,6 +163,21 @@ Die Spalte „Test“ zeigt die Zeit beim ersten Aufruf ohne Cache am Luisenplat
 | `arcgis_abfrage` | Objekte einer Ebene eines ArcGIS-MapServers/FeatureServers im Umkreis als GeoJSON (z.B. weitere HLNUG-Fachkarten). Ohne layer: Liste der Ebenen. Parameter: `url`, `layer` | je nach Dienst | je nach Dienst | OK, 5.3 s |
 | `wms_abfrage` | Fragt den Wert einer WMS-Ebene am Punkt ab (z.B. aus geoportal_hessen gefundene Fachkarten). Parameter: `url`, `layer` | je nach Dienst | je nach Dienst | OK, 3.0 s |
 
+## Quellen aller drei Prototypen
+
+Die Seite *Datenquellen* verlinkt auf **„Datenquellen aller Prototypen“** (`/datenquellen-alle`, Code [datenquellen_alle_page.py](../datenquellen_alle_page.py), Daten [datenquellen_alle.py](../datenquellen_alle.py)). Sie listet die Gesamtmenge der Quellen aus allen drei Branches mit Venn-Diagramm, Schnittmengen und je Quelle einer Anmerkung, wie jeder Branch sie nutzt. Gescannt am 02.11.2026: `aaron-proto-datenquellen` (mit `aaron-proto`), `lorenz_prototyp` (f5f69f1), `ritvik-prototype-frontend` (e7c943c).
+
+| | Gesamt | in allen drei | nur Aaron + Lorenz | nur Aaron + Ritvik | nur Lorenz + Ritvik | nur Aaron | nur Lorenz | nur Ritvik |
+|---|---|---|---|---|---|---|---|---|
+| alle Nennungen | 107 | 4 | 4 | 5 | 1 | 55 | 0 | 38 |
+| nur aktiv abgerufen | 92 | 1 | 7 | 3 | 1 | 57 | 0 | 23 |
+
+- **In allen drei:** Luftbild Hessen (DOP 20 cm) wird überall wirklich abgerufen. Overpass, Nominatim und GovData nutzen Aaron und Lorenz; bei Ritvik sind sie nur vorbereitet (Registry) oder als Demo genannt.
+- **Lorenz** hat keine eigene Quelle: alles (OSM, GovData, beliebige Dateien/WFS/WMS, Upload) kommt auch bei Aaron oder Ritvik vor.
+- **Ritvik** bringt vor allem Kartengrundlagen mit: Luftbilder aller 16 Länder, basemap.de, OpenFreeMap, Mapterhorn-Gelände, 3D-Gebäude, Photon-Suche. Sein Agent ist noch ein Mock mit Demo-Daten.
+- Stufen je Branch: ✅ aktiv, 🟡 vorbereitet (eingetragen/geprüft, noch nicht abgerufen), 🧪 nur Demo/geplant. Ein Schalter auf der Seite zählt nur die aktiven.
+- Aarons Katalog wird live eingelesen: Neue Quellen in `datenquellen.py` erscheinen automatisch als „nur Aaron“. Export als CSV und Markdown.
+
 ## Plausibilität am Luisenplatz (Umkreis 500 m)
 
 | Quelle | Wert |
@@ -190,7 +209,7 @@ Die Werte passen zur Innenstadt. Zwei Quellen zum selben Thema können sich unte
   - **Nur Datenquellen** zeigt gemessene Werte (Oberflächentemperatur, Baumbedeckung, Wärmeinsel, heiße Tage) und erklärt die Richtung, liefert aber keine Zahl für die Änderung.
   - **Mit Skills** kommt dazu eine modellierte Abschätzung mit anpassbaren Annahmen.
 
-Beispielfragen für den Modus stehen in der Seitenleiste, z.B. „Wie heiß wird es im Sommer am Luisenplatz Darmstadt und wie viel Grün gibt es dort?“
+Beispielfragen für den Modus stehen als Karten im leeren Chat, z.B. „Wie heiß wird es im Sommer am Luisenplatz Darmstadt und wie viel Grün gibt es dort?“
 
 ## Erkenntnisse aus den Tests
 

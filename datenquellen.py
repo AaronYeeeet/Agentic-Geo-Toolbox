@@ -11,6 +11,7 @@ aus dem Netz (geo_tools.gdal), WFS-Dienste lädt ogr2ogr. Es wird nichts modelli
   abfragen(quelle, lat, lon, radius_m, parameter)   -> {"quelle": {...}, "zusammenfassung": ..., "files": {...}}
   python datenquellen.py test [quelle ...]          -> alle (oder einzelne) Quellen am Luisenplatz Darmstadt testen
   python datenquellen.py liste                      -> Katalog als Markdown-Tabelle
+  python datenquellen.py beispiele [quelle ...]     -> wie test, speichert die Antworten als Beispiele für die Doku-Seite
 """
 import datetime
 import gzip
@@ -2389,16 +2390,95 @@ def wms_abfrage(lat, lon, r, p):
 # =====================================================================================================
 KATEGORIEN = [K_WETTER, K_LUFT, K_WASSER, K_UMWELT, K_BEV, K_FERN, K_MOB, K_WISSEN, K_KAT]
 
+# Kurzbeschreibung und Schlagwörter (wofür man die Quelle braucht, was sie liefert) für Doku-Seite und Katalog
+KURZINFO = {
+    "wetter_aktuell": ("Aktuelle Messwerte der nächsten DWD-Station", ["Temperatur jetzt", "Regen", "Wind", "Bewölkung"]),
+    "wetter_vorhersage": ("Wetter der nächsten 1 bis 16 Tage", ["Vorhersage", "Höchsttemperatur", "Regenrisiko", "Böen"]),
+    "wetter_historisch": ("Wetterstatistik je Jahr seit 1940", ["heiße Tage", "Tropennächte", "Frost", "Extremwerte"]),
+    "klima_projektion": ("Klima bis 2050 im Vergleich zu heute", ["Klimawandel", "Zukunft", "heiße Tage", "Starkregentage"]),
+    "unwetterwarnungen": ("Aktuelle DWD-Warnungen für die Gemeinde", ["Gewitter", "Sturm", "Hitzewarnung", "Glätte"]),
+    "nina_warnungen": ("Aktuelle Bevölkerungswarnungen im Kreis", ["Katastrophenschutz", "Hochwasser", "Gefahrenlage"]),
+    "regenradar": ("Regen der letzten 2 Stunden und der nächsten Stunden", ["Radar", "Regen jetzt", "Kurzfristvorhersage"]),
+    "kostra_starkregen": ("Amtliche Starkregenmengen je Dauer und Wiederkehrzeit",
+                          ["Bemessungsregen", "Entwässerung", "Starkregen-Szenario"]),
+    "dwd_klimaraster": ("Gemessene Klimawerte je Jahr am Ort (1 km)", ["heiße Tage", "Niederschlag", "Trend", "Klimamittel"]),
+    "stadtklima_waermeinsel": ("Wärmeinsel-Effekt der Stadt je Jahr", ["Stadtklima", "Überwärmung", "Tropennächte"]),
+    "dwd_klimakarten": ("Langjährige Klimamittel am Ort", ["Sonnenstunden", "Wind", "Frosttage", "Solarpotenzial"]),
+    "luft_messstationen": ("Aktuelle Werte der nächsten Luftmessstationen", ["NO2", "Feinstaub", "Ozon", "amtlich"]),
+    "luft_modell": ("Luftqualität und Pollen aus dem CAMS-Modell", ["Luftqualitätsindex", "Feinstaub", "Pollen"]),
+    "buergersensoren_luft": ("Feinstaubsensoren von Bürger:innen im Umkreis", ["Feinstaub kleinräumig", "Temperatur",
+                                                                              "nicht kalibriert"]),
+    "opensensemap": ("Offene senseBox-Umweltsensoren im Umkreis", ["Temperatur", "Feuchte", "Feinstaub", "Lärm"]),
+    "pollenflug": ("Pollenbelastung der nächsten 3 Tage", ["Allergie", "Pollenarten", "Gesundheit"]),
+    "uv_index": ("UV-Index der nächsten 3 Tage", ["Sonnenschutz", "Gesundheit", "Hitzeschutz"]),
+    "pegel": ("Aktuelle Wasserstände an Flüssen im Umkreis", ["Wasserstand", "Hochwasser jetzt", "Abfluss"]),
+    "abfluss_vorhersage": ("Abfluss des nächsten Flusses mit Vorhersage", ["Hochwasservorhersage", "Niedrigwasser"]),
+    "hlnug_hochwasser": ("Hochwasser-Gefahrenflächen und Überschwemmungsgebiete", ["HQ100", "Überflutung",
+                                                                                  "Bauen am Fluss"]),
+    "hlnug_starkregen": ("Starkregen-Hinweiskarte Hessen", ["Starkregenrisiko", "Fließpfade", "Vulnerabilität"]),
+    "hlnug_hitze": ("Hitzekarte Hessen aus Satellitendaten", ["Hitzeinseln", "Oberflächentemperatur", "Hitzebelastung"]),
+    "hlnug_laerm": ("Amtliche Lärmpegel am Ort", ["Straßenlärm", "Schienenlärm", "Fluglärm", "dB(A)"]),
+    "hlnug_schutzgebiete": ("Naturschutzgebiete in Hessen im Umkreis", ["NSG", "LSG", "FFH", "Vogelschutz"]),
+    "hlnug_wasserschutz": ("Wasserschutzgebiete mit Schutzzonen", ["Trinkwasser", "Versickerung", "Bauauflagen"]),
+    "hlnug_biotope": ("Geschützte Biotope und Lebensräume", ["Biotope", "Streuobst", "Naturschutz"]),
+    "hlnug_boden": ("Bodeneigenschaften am Ort", ["Bodentyp", "Wasserspeicher", "Versickerung", "Ertrag"]),
+    "hlnug_geologie": ("Geologie und Geogefahren am Ort", ["Baugrund", "Erdbebenzone", "Rutschung", "Karst"]),
+    "hlnug_radon": ("Radonpotenzial am Ort", ["Neubau", "Radonschutz", "Gesundheit"]),
+    "schutzgebiete_bund": ("Schutzgebiete in ganz Deutschland (BfN)", ["Naturschutz", "FFH", "Nationalpark"]),
+    "gbif_arten": ("Beobachtete Tier- und Pflanzenarten", ["Artenvielfalt", "Rote Liste", "Artenschutz"]),
+    "verwaltungseinheit": ("Gemeinde, Kreis und Land am Ort", ["Gemeindeschlüssel", "Grenze", "Zuständigkeit"]),
+    "zensus2022": ("Einwohner und Gebäude im 100-m-Raster", ["Bevölkerungsdichte", "Wohngebäude", "Eigentümerquote"]),
+    "ladesaeulen_register": ("Öffentliche Ladepunkte im Umkreis", ["E-Mobilität", "Ladeleistung", "Betreiber"]),
+    "marktstammdaten": ("Kraftwerke, Solar- und Windanlagen der Gemeinde", ["Photovoltaik", "Windkraft", "Speicher",
+                                                                          "Energiewende"]),
+    "strommix": ("Strommix Deutschland der letzten 7 Tage", ["Erneuerbare", "Strompreis", "Verbrauch"]),
+    "copernicus_versiegelung": ("Versiegelte Fläche je 10-m-Zelle", ["Versiegelungsgrad", "Entsiegelung", "Starkregen",
+                                                                     "Hitze"]),
+    "copernicus_baumbedeckung": ("Anteil Baumkronen je 10-m-Zelle", ["Stadtgrün", "Bäume", "Schatten"]),
+    "esa_worldcover": ("Landbedeckung je 10-m-Zelle", ["Bäume", "Grünland", "Acker", "bebaut", "Wasser"]),
+    "sentinel2_ndvi": ("Vegetation aus einem Sentinel-2-Satellitenbild", ["Grünanteil", "NDVI", "Vegetationszustand"]),
+    "landsat_oberflaechentemperatur": ("Oberflächentemperatur aus Landsat (30 m)", ["Hitzeinseln", "heiße Flächen",
+                                                                                    "Kühlung durch Grün"]),
+    "gelaendehoehe": ("Geländehöhe am Ort und im Umkreis", ["Höhe", "Gefälle", "Senken"]),
+    "karte_hessen": ("Luftbild oder Liegenschaftskarte als Bild", ["Luftbild 20 cm", "Flurstücke", "Gebäude"]),
+    "oepnv_haltestellen": ("Haltestellen im Umkreis", ["Bus", "Tram", "S-Bahn", "ÖPNV-Anbindung"]),
+    "oepnv_abfahrten": ("Nächste Abfahrten mit Echtzeit", ["Linien", "Takt", "Verspätung"]),
+    "erreichbarkeit": ("In x Minuten erreichbare Fläche", ["Isochrone", "Einzugsgebiet", "15-Minuten-Stadt"]),
+    "route": ("Route und Fahrzeit zu einem Ziel", ["Weg", "Dauer", "zu Fuß", "Rad", "Auto"]),
+    "autobahn": ("Baustellen und Sperrungen auf Autobahnen", ["Verkehrslage", "Sperrung", "Lkw-Parkplätze"]),
+    "bikesharing": ("Leihrad-Stationen mit freien Rädern", ["Call a Bike", "nextbike", "Radverkehr"]),
+    "unfallatlas": ("Verkehrsunfälle mit Verletzten", ["Unfallschwerpunkte", "Radunfälle", "Verkehrssicherheit"]),
+    "wikipedia": ("Wikipedia-Artikel zu Orten im Umkreis", ["Geschichte", "Gebäude", "Hintergrund"]),
+    "wikidata": ("Objekte und Denkmäler aus Wikidata", ["Schulen", "Kirchen", "Kulturdenkmäler"]),
+    "datei_laden": ("Beliebige offene Datei laden", ["CSV", "GeoJSON", "Shapefile"]),
+    "opendata_darmstadt": ("Datensätze der Stadt Darmstadt", ["Verkehrszählungen", "Bezirke", "Bevölkerung",
+                                                              "Sozialatlas"]),
+    "govdata": ("Offene Daten aus ganz Deutschland suchen", ["Datensätze finden", "Downloads"]),
+    "geoportal_hessen": ("Kartendienste in Hessen suchen", ["Bebauungspläne", "Bodenrichtwerte", "Fachkarten"]),
+    "wfs_abfrage": ("Beliebigen WFS-Dienst laden", ["Vektordaten", "Geodienst", "GeoJSON"]),
+    "arcgis_abfrage": ("Beliebigen ArcGIS-Dienst abfragen", ["Fachkarten", "Vektordaten", "GeoJSON"]),
+    "wms_abfrage": ("Wert eines beliebigen WMS am Ort", ["Kartenwert", "Fachkarten"]),
+}
+
+
+def kurzinfo(qid):
+    """(Kurzbeschreibung, Schlagwörter). Ohne Eintrag: erster Satz der Beschreibung."""
+    if qid in KURZINFO:
+        return KURZINFO[qid]
+    return re.split(r"[:.;(]", QUELLEN[qid]["beschreibung"])[0].strip(), []
+
 
 def katalog(kategorie=None, suche=None):
     out = []
     for q in QUELLEN.values():
         if kategorie and kategorie.lower() not in q["kategorie"].lower():
             continue
-        text = " ".join(str(q[k]) for k in ("id", "name", "beschreibung", "anbieter", "kategorie")).lower()
+        kurz, worte = kurzinfo(q["id"])
+        text = " ".join([str(q[k]) for k in ("id", "name", "beschreibung", "anbieter", "kategorie")] + worte).lower()
         if suche and not all(w_ in text for w_ in suche.lower().split()):
             continue
         out.append({k: q[k] for k in ("id", "name", "kategorie", "anbieter", "lizenz", "art", "beschreibung", "parameter")} |
+                   {"stichworte": worte} |
                    ({"radius_standard_m": q["radius"], "radius_max_m": q["max_radius"]} if q["art"] == "umkreis" else {}))
     return out
 
@@ -2478,19 +2558,36 @@ TEST_PARAMETER = {
 }
 
 
-def selbsttest(lat=TEST_PUNKT[0], lon=TEST_PUNKT[1], quellen=None, parallel=6, timeout=150):
-    """Alle Quellen kurz aufrufen. -> [{"quelle", "ok", "sekunden", "info"}]"""
+def beispiel_aufruf(qid, lat=TEST_PUNKT[0], lon=TEST_PUNKT[1]):
+    """Argumente für das Werkzeug datenquelle_abfragen, so wie der Agent sie schickt (= Argumente von abfragen)."""
+    q = QUELLEN[qid]
+    a = {"quelle": qid}
+    if q["art"] in ("punkt", "umkreis"):
+        a.update(lat=lat, lon=lon)
+    if q["art"] == "umkreis":
+        a["radius_m"] = q["radius"]
+    if TEST_PARAMETER.get(qid):
+        a["parameter"] = TEST_PARAMETER[qid]
+    return a
+
+
+def selbsttest(lat=TEST_PUNKT[0], lon=TEST_PUNKT[1], quellen=None, parallel=6, timeout=150, beispiele_speichern=False):
+    """Alle Quellen kurz aufrufen. -> [{"quelle", "ok", "sekunden", "info", "aufruf", "antwort"}]
+    beispiele_speichern: Antworten als Beispiele für die Doku-Seite in BEISPIELE_DATEI schreiben."""
     geo_tools.new_run("datenquellen_selbsttest")
     ids = quellen or list(QUELLEN)
 
     def eins(qid):
         t = time.time()
+        aufruf = beispiel_aufruf(qid, lat, lon)
         try:
-            res = abfragen(qid, lat, lon, None, TEST_PARAMETER.get(qid))
+            res = abfragen(**aufruf)
             return {"quelle": qid, "ok": True, "sekunden": round(time.time() - t, 1),
-                    "info": json.dumps(res.get("zusammenfassung"), ensure_ascii=False)[:160], "dateien": len(res.get("files", {}))}
+                    "info": json.dumps(res.get("zusammenfassung"), ensure_ascii=False)[:160],
+                    "dateien": len(res.get("files", {})), "aufruf": aufruf, "antwort": res}
         except Exception as err:
-            return {"quelle": qid, "ok": False, "sekunden": round(time.time() - t, 1), "info": f"{type(err).__name__}: {err}"[:300]}
+            return {"quelle": qid, "ok": False, "sekunden": round(time.time() - t, 1),
+                    "info": f"{type(err).__name__}: {err}"[:300], "aufruf": aufruf}
     with ThreadPoolExecutor(parallel) as ex:
         futs = [ex.submit(eins, q) for q in ids]
         out = []
@@ -2498,8 +2595,113 @@ def selbsttest(lat=TEST_PUNKT[0], lon=TEST_PUNKT[1], quellen=None, parallel=6, t
             try:
                 out.append(fut.result(timeout=timeout))
             except Exception as err:
-                out.append({"quelle": qid, "ok": False, "sekunden": timeout, "info": f"Zeitüberschreitung/Fehler: {err}"})
+                out.append({"quelle": qid, "ok": False, "sekunden": timeout, "info": f"Zeitüberschreitung/Fehler: {err}",
+                            "aufruf": beispiel_aufruf(qid, lat, lon)})
+    if beispiele_speichern:
+        _beispiele_schreiben(out)
     return out
+
+
+# ---------- Doku: Beispiele, Endpunkte, Anbindung ----------
+BEISPIELE_DATEI = os.path.join(HERE, "docs", "datenquellen_beispiele.json")
+
+
+def beispiele():
+    """Gespeicherte Beispielantworten {quelle: {aufruf, antwort | fehler, datum}} (aus dem Selbsttest)."""
+    try:
+        with open(BEISPIELE_DATEI, encoding="utf-8") as f:
+            return json.load(f)
+    except (OSError, ValueError):
+        return {}
+
+
+def _beispiele_schreiben(rows):
+    """Selbsttest-Ergebnisse als Beispiele speichern. Bei einem Fehler bleibt das letzte gute Beispiel stehen."""
+    alle = beispiele()
+    heute = datetime.date.today().isoformat()
+    for r_ in rows:
+        if r_.get("antwort"):
+            antwort = dict(r_["antwort"])
+            antwort["files"] = {k: os.path.basename(v) for k, v in (antwort.get("files") or {}).items()}
+            alle[r_["quelle"]] = {"aufruf": r_["aufruf"], "antwort": antwort, "datum": heute}
+        elif r_["quelle"] in alle and "antwort" in alle[r_["quelle"]]:
+            alle[r_["quelle"]]["letzter_fehler"] = {"datum": heute, "fehler": r_["info"]}
+        else:
+            alle[r_["quelle"]] = {"aufruf": r_["aufruf"], "fehler": r_["info"], "datum": heute}
+    os.makedirs(os.path.dirname(BEISPIELE_DATEI), exist_ok=True)
+    with open(BEISPIELE_DATEI, "w", encoding="utf-8") as f:
+        json.dump({k: alle[k] for k in QUELLEN if k in alle}, f, ensure_ascii=False, indent=1, default=str)
+
+
+def _quelltext(qid):
+    """Code der Quelle plus der Hilfsfunktionen, die sie aufruft (für Endpunkte und Anbindung)."""
+    import inspect
+    src = inspect.getsource(QUELLEN[qid]["fn"])
+    for name in sorted(set(re.findall(r"\b(_[a-z][a-z0-9_]*)\(", src))):
+        f = globals().get(name)
+        if callable(f) and getattr(f, "__module__", None) == __name__ and name not in ("_http", "_save", "_kuerzen"):
+            src += "\n" + inspect.getsource(f)
+    return src
+
+
+def endpunkte(qid):
+    """Adressen der Dienste, die die Quelle abfragt (aus dem Code gelesen, Platzhalter als …)."""
+    if qid in ("datei_laden", "wfs_abfrage", "arcgis_abfrage", "wms_abfrage"):
+        return []  # Adresse kommt als Parameter
+    src = _quelltext(qid)
+    # Adress-Konstanten des Moduls (HLNUG, KOSTRA, MASTR, VALHALLA, HESSEN_WMS ...)
+    konst = {k: v for k, v in globals().items() if k.isupper() and isinstance(v, str) and v.startswith("http")}
+    kandidaten = [konst[k] for k in re.findall(r"\b([A-Z][A-Z0-9_]+)\b(?![\}\w])", src) if k in konst]
+    for k in set(re.findall(r"\b([A-Z][A-Z0-9_]+)\b", src)):
+        v = globals().get(k)
+        if isinstance(v, dict):
+            kandidaten += [s for t in v.values() for s in (t if isinstance(t, (list, tuple)) else [t])
+                           if isinstance(s, str) and s.startswith("http")]
+    kandidaten += re.findall(r"""["'](?:WFS:|/vsicurl/)?(https?://[^"'\s]+|\{[A-Z][A-Z0-9_]*\}[^"'\s]*)""", src)
+    out = []
+    for u in kandidaten:
+        u = re.sub(r"\{([A-Z][A-Z0-9_]*)\}", lambda m: konst.get(m.group(1), "…"), u)
+        u = re.sub(r"\{[^}]*\}", "…", u)
+        u = re.sub(r"\{.*$", "…", u)  # abgeschnittener Platzhalter (Leerzeichen/Anführungszeichen darin)
+        if u.rstrip("/") != QUELLEN[qid]["url"].rstrip("/") and u not in out:
+            out.append(u)
+    # Basisadressen weglassen, wenn eine genauere Adresse darunter folgt
+    return [u for u in out if not any(o != u and o.startswith(u.rstrip("/") + "/") for o in out)][:6]
+
+
+ANBINDUNGEN = {
+    "api": "JSON-/REST-API",
+    "arcgis": "ArcGIS-REST-Dienst",
+    "wms": "WMS-Dienst",
+    "wfs": "WFS über ogr2ogr (GDAL)",
+    "gdal": "Raster über GDAL (QGIS)",
+    "datei": "Datei-Download (Raster, CSV, ZIP)",
+    "katalog": "Katalog-Suche (CKAN, Mapbender)",
+    "lokal": "Lokale Daten (einmal geladen)",
+}
+_ANBINDUNG_FEST = {"datei_laden": "datei", "opendata_darmstadt": "katalog", "govdata": "katalog",
+                   "geoportal_hessen": "katalog"}
+
+
+def anbindung(qid):
+    """Wie die Quelle angebunden ist (Schlüssel aus ANBINDUNGEN)."""
+    if qid in _ANBINDUNG_FEST:
+        return _ANBINDUNG_FEST[qid]
+    src = _quelltext(qid)
+    low = src.lower()
+    if "ogr2ogr" in src:
+        return "wfs"
+    if "geo_tools.gdal(" in src or "_gdal_area(" in src:
+        return "gdal"
+    if "_arc_" in src or "/MapServer" in src or "/ImageServer" in src:
+        return "arcgis"
+    if "getfeatureinfo" in low or "getmap" in low:
+        return "wms"
+    if re.search(r"\.(zip|asc|gz|csv)\b", low) or 'fmt="bytes"' in src:
+        return "datei"
+    if "_http(" in src or "requests." in src:
+        return "api"
+    return "lokal"
 
 
 if __name__ == "__main__":
@@ -2510,6 +2712,11 @@ if __name__ == "__main__":
         for r_ in res:
             print(f"{'OK ' if r_['ok'] else 'ERR'} {r_['sekunden']:6.1f}s  {r_['quelle']:32} {r_['info']}")
         print(f"\n{sum(r_['ok'] for r_ in res)}/{len(res)} Quellen OK. Dateien: {geo_tools.run_dir()}")
+    elif cmd == "beispiele":  # wie test, speichert die Antworten zusätzlich als Beispiele für die Doku-Seite
+        res = selbsttest(quellen=sys.argv[2:] or None, beispiele_speichern=True)
+        for r_ in res:
+            print(f"{'OK ' if r_['ok'] else 'ERR'} {r_['sekunden']:6.1f}s  {r_['quelle']:32} {r_['info'][:100]}")
+        print(f"\n{sum(r_['ok'] for r_ in res)}/{len(res)} Quellen OK. Beispiele: {BEISPIELE_DATEI}")
     elif cmd == "liste":
         print("| Kategorie | ID | Name | Anbieter | Lizenz |\n|---|---|---|---|---|")
         for q in QUELLEN.values():
