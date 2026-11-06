@@ -29,11 +29,13 @@ async def check_database() -> dict:
 
 async def check_qgis() -> dict:
     try:
-        async with streamablehttp_client(MCP_URL) as (read, write, _):
-            async with ClientSession(read, write) as session:
-                await session.initialize()
-                tools = await session.list_tools()
-                reply = await session.call_tool("qgis_version", {})
+        async with (
+            streamablehttp_client(MCP_URL) as (read, write, _),
+            ClientSession(read, write) as session,
+        ):
+            await session.initialize()
+            tools = await session.list_tools()
+            reply = await session.call_tool("qgis_version", {})
         return {
             "ok": True,
             "qgis": reply.content[0].text,
@@ -75,7 +77,7 @@ async def llm_ping() -> dict:
                 json={
                     "model": LLM_MODEL,
                     "messages": [{"role": "user", "content": "Reply with exactly: pong"}],
-                    # Reasoning models spend tokens on thinking first; too low a limit gives reply=None.
+                    # Reasoning models think first; too low a limit gives reply=None.
                     "max_tokens": 300,
                 },
             )

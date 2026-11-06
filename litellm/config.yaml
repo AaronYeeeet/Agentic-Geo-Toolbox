@@ -50,7 +50,7 @@ router_settings:
     - gemma-4-31b: [gemma-4-26b]
 
 litellm_settings:
-  drop_params: true   # silently drop parameters a model doesn't support
+  drop_params: true # silently drop parameters a model doesn't support
 
 general_settings:
   master_key: os.environ/LITELLM_MASTER_KEY

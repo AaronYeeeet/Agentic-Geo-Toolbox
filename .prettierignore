@@ -1,0 +1,7 @@
+package-lock.json
+uv.lock
+data/
+models/
+sources/
+**/dist/
+**/node_modules/

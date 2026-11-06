@@ -33,7 +33,7 @@ services:
   litellm:
     image: litellm/litellm:1.108.0-lts
     command: ["--config", "/app/config.yaml", "--port", "4000"]
-    ports: ["4000:4000"]   # for testing; the backend uses http://litellm:4000
+    ports: ["4000:4000"] # for testing; the backend uses http://litellm:4000
     env_file: .env
     environment:
       # Own database instead of DATABASE_URL from .env (that one is our geodata)
@@ -45,7 +45,13 @@ services:
         condition: service_healthy
     # "Started" only means the process runs; LiteLLM needs ~30 s more (DB migrations).
     healthcheck:
-      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:4000/health/liveliness')"]
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import urllib.request; urllib.request.urlopen('http://localhost:4000/health/liveliness')",
+        ]
       interval: 5s
       timeout: 5s
       start_period: 60s
@@ -53,7 +59,7 @@ services:
 
   qgis:
     build: ./qgis-worker
-    ports: ["8100:8100"]   # for testing with the MCP Inspector
+    ports: ["8100:8100"] # for testing with the MCP Inspector
     env_file: .env
     volumes:
       - ./qgis-worker/server.py:/app/server.py
@@ -62,7 +68,7 @@ services:
 
   db:
     image: postgis/postgis:17-3.5
-    ports: ["${DB_PORT:-5432}:5432"]   # so QGIS Desktop can connect
+    ports: ["${DB_PORT:-5432}:5432"] # so QGIS Desktop can connect
     environment:
       POSTGRES_DB: ${POSTGRES_DB}
       POSTGRES_USER: ${POSTGRES_USER}

@@ -1,0 +1,14 @@
+# Ruff settings for all Python code in the repo (backend, qgis-worker, evals, ...).
+line-length = 100
+target-version = "py312"
+
+[lint]
+select = [
+    "E",   # pycodestyle errors
+    "W",   # pycodestyle warnings
+    "F",   # pyflakes: unused imports, undefined names
+    "I",   # import sorting
+    "UP",  # modern Python syntax
+    "B",   # common bugs
+    "SIM", # simpler code
+]

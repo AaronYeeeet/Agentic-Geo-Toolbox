@@ -41,7 +41,14 @@ export default function App() {
   };
 
   return (
-    <main style={{ fontFamily: "system-ui, sans-serif", maxWidth: 640, margin: "48px auto", padding: 16 }}>
+    <main
+      style={{
+        fontFamily: "system-ui, sans-serif",
+        maxWidth: 640,
+        margin: "48px auto",
+        padding: 16,
+      }}
+    >
       <h1>Geo-Agent</h1>
       {error && <p>Backend not reachable: {error}</p>}
       {!health && !error && <p>Checking services …</p>}
