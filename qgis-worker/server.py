@@ -25,6 +25,12 @@ from qgis.analysis import QgsNativeAlgorithms  # noqa: E402
 if not QgsApplication.processingRegistry().providerById("native"):
     QgsApplication.processingRegistry().addProvider(QgsNativeAlgorithms())
 
+from catalog import build_catalog  # noqa: E402
+
+# Read once at startup; the algorithms don't change while the worker runs
+CATALOG = build_catalog()
+CATALOG_BY_ID = {alg["id"]: alg for alg in CATALOG}
+
 from mcp.server.fastmcp import FastMCP  # noqa: E402
 from starlette.requests import Request  # noqa: E402
 from starlette.responses import JSONResponse  # noqa: E402
@@ -51,7 +57,20 @@ def run_algorithm(algorithm_id: str, parameters: dict) -> dict:
 @mcp.custom_route("/health", methods=["GET"])
 async def health(_: Request) -> JSONResponse:
     count = len(QgsApplication.processingRegistry().algorithms())
-    return JSONResponse({"qgis": Qgis.version(), "algorithms": count})
+    return JSONResponse({"qgis": Qgis.version(), "algorithms": count, "catalog": len(CATALOG)})
+
+
+@mcp.custom_route("/catalog", methods=["GET"])
+async def catalog(request: Request) -> JSONResponse:
+    """For debugging: /catalog, /catalog?provider=native, /catalog?id=native:buffer"""
+    alg_id = request.query_params.get("id")
+    if alg_id:
+        if alg_id not in CATALOG_BY_ID:
+            return JSONResponse({"error": f"unknown algorithm: {alg_id}"}, status_code=404)
+        return JSONResponse(CATALOG_BY_ID[alg_id])
+    provider = request.query_params.get("provider")
+    algorithms = [a for a in CATALOG if not provider or a["provider"] == provider]
+    return JSONResponse({"count": len(algorithms), "algorithms": algorithms})
 
 
 if __name__ == "__main__":

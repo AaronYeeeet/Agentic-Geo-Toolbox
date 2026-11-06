@@ -62,7 +62,7 @@ services:
     ports: ["8100:8100"] # for testing with the MCP Inspector
     env_file: .env
     volumes:
-      - ./qgis-worker/server.py:/app/server.py
+      - ./qgis-worker:/app
       - ./models:/models
       - ./data:/data
 

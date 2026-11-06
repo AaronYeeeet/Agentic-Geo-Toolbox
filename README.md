@@ -24,16 +24,17 @@ cp .env.example .env
 docker compose up --build
 ```
 
-| Adresse                                 | Was                                                           |
-| --------------------------------------- | ------------------------------------------------------------- |
-| http://localhost:5173                   | Frontend, zeigt den Status aller Dienste                      |
-| http://localhost:8000/api/health        | Backend-Status als JSON                                       |
-| http://localhost:8000/docs              | API-Dokumentation                                             |
-| http://localhost:8000/api/llm-ping      | Schickt einen kurzen Prompt durch LiteLLM an das Modell       |
-| http://localhost:8100/health            | QGIS-Worker: Version und Anzahl Algorithmen                   |
-| http://localhost:4000/health/liveliness | LiteLLM-Proxy läuft                                           |
-| http://localhost:8100/mcp               | MCP-Endpunkt, z. B. für `npx @modelcontextprotocol/inspector` |
-| localhost:5432                          | PostGIS, Zugang aus `.env`, z. B. aus QGIS Desktop            |
+| Adresse                                 | Was                                                            |
+| --------------------------------------- | -------------------------------------------------------------- |
+| http://localhost:5173                   | Frontend, zeigt den Status aller Dienste                       |
+| http://localhost:8000/api/health        | Backend-Status als JSON                                        |
+| http://localhost:8000/docs              | API-Dokumentation                                              |
+| http://localhost:8000/api/llm-ping      | Schickt einen kurzen Prompt durch LiteLLM an das Modell        |
+| http://localhost:8100/health            | QGIS-Worker: Version und Anzahl Algorithmen                    |
+| http://localhost:8100/catalog           | Alle Algorithmen mit Parametern, `?id=native:buffer` für einen |
+| http://localhost:4000/health/liveliness | LiteLLM-Proxy läuft                                            |
+| http://localhost:8100/mcp               | MCP-Endpunkt, z. B. für `npx @modelcontextprotocol/inspector`  |
+| localhost:5432                          | PostGIS, Zugang aus `.env`, z. B. aus QGIS Desktop             |
 
 Die Datenbank hat zwei Teile: `geo` für unsere Geodaten und `litellm` für LiteLLM (Schlüssel, Budgets, Kosten).
 `db/init/` läuft nur, wenn das Datenbank-Volume neu angelegt wird. Bei einem älteren Volume ohne `litellm` einmal:
@@ -45,7 +46,7 @@ docker compose exec db createdb -U geo litellm
 Für den LLM-Test in `.env` einen eigenen `OPENROUTER_API_KEY` eintragen (kostenlos auf openrouter.ai).
 Modelle ändern: `litellm/config.yaml` bearbeiten, dann `docker compose restart litellm`.
 
-Code in `frontend/src`, `backend/app` und `qgis-worker/server.py` wird eingebunden:
+Code in `frontend/src`, `backend/app` und `qgis-worker/` wird eingebunden:
 Frontend und Backend laden Änderungen selbst neu, den Worker nach Änderungen neu starten:
 
 ```bash
