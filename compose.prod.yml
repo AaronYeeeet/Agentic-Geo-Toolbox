@@ -21,6 +21,10 @@ services:
       - ./data:/data
     restart: unless-stopped
 
+  litellm:
+    ports: !reset []
+    restart: unless-stopped
+
   qgis:
     ports: !reset []
     volumes: !override
