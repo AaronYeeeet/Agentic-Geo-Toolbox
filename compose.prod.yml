@@ -1,0 +1,37 @@
+# Server overrides:
+#   docker compose -f docker-compose.yml -f compose.prod.yml up -d --build
+# Only 80 and 443 (Caddy) are exposed. Code is baked into the images, not mounted.
+
+services:
+  frontend:
+    build:
+      target: prod
+    ports: !override ["80:80", "443:443"]
+    environment:
+      DOMAIN: ${DOMAIN}
+    volumes: !override
+      - caddy_data:/data
+      - caddy_config:/config
+    restart: unless-stopped
+
+  backend:
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000
+    ports: !reset []
+    volumes: !override
+      - ./data:/data
+    restart: unless-stopped
+
+  qgis:
+    ports: !reset []
+    volumes: !override
+      - ./models:/models
+      - ./data:/data
+    restart: unless-stopped
+
+  db:
+    ports: !reset []
+    restart: unless-stopped
+
+volumes:
+  caddy_data:
+  caddy_config:

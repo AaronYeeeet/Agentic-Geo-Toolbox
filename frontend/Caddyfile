@@ -1,0 +1,14 @@
+# DOMAIN comes from .env. With a real domain, Caddy fetches the HTTPS certificate itself.
+{$DOMAIN:localhost} {
+	encode gzip
+
+	handle /api/* {
+		reverse_proxy backend:8000
+	}
+
+	handle {
+		root * /srv
+		try_files {path} /index.html
+		file_server
+	}
+}

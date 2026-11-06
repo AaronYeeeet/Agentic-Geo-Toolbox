@@ -1,0 +1,19 @@
+.env
+data/*
+!data/.gitkeep
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+.ruff_cache/
+
+# Frontend
+node_modules/
+dist/
+
+# Editor, System
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db

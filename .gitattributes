@@ -1,0 +1,7 @@
+# LF everywhere, otherwise scripts checked out on Windows fail in Linux containers
+* text=auto eol=lf
+*.png binary
+*.jpg binary
+*.gpkg binary
+*.tif binary
+*.qgz binary

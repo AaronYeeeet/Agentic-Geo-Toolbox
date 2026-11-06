@@ -1,0 +1,55 @@
+# Development: `docker compose up --build` starts everything.
+# Server: add compose.prod.yml, see README.
+
+services:
+  frontend:
+    build:
+      context: ./frontend
+      target: dev
+    ports: ["5173:5173"]
+    environment:
+      API_URL: http://backend:8000
+    volumes:
+      - ./frontend/src:/app/src
+      - ./frontend/index.html:/app/index.html
+    depends_on: [backend]
+
+  backend:
+    build: ./backend
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+    ports: ["8000:8000"]
+    env_file: .env
+    volumes:
+      - ./backend/app:/app/app
+      - ./data:/data
+    depends_on:
+      db:
+        condition: service_healthy
+      qgis:
+        condition: service_started
+
+  qgis:
+    build: ./qgis-worker
+    ports: ["8100:8100"]   # for testing with the MCP Inspector
+    env_file: .env
+    volumes:
+      - ./qgis-worker/server.py:/app/server.py
+      - ./models:/models
+      - ./data:/data
+
+  db:
+    image: postgis/postgis:17-3.5
+    ports: ["${DB_PORT:-5432}:5432"]   # so QGIS Desktop can connect
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      retries: 10
+
+volumes:
+  pgdata:
